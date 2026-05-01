@@ -136,10 +136,10 @@ export default function SettlementsPage() {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/90 backdrop-blur-sm">
-        <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 sm:py-5">
+      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/95 backdrop-blur-sm">
+        <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6 sm:py-4">
           <Link href="/">
-            <Button variant="ghost" size="sm" className="-ml-2 mb-3 min-h-10 gap-2">
+            <Button variant="ghost" size="sm" className="-ml-2 mb-2 min-h-9 gap-2">
               <ArrowLeft className="w-4 h-4" />
               รายการ
             </Button>
@@ -147,10 +147,10 @@ export default function SettlementsPage() {
 
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-serif tracking-tight text-foreground">
+              <h1 className="text-2xl font-serif leading-none tracking-tight text-foreground sm:text-3xl">
                 สรุปโอนเงิน
               </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
                 แยกตามคน · {totalItems} รายการที่ต้องจ่ายคืน
               </p>
             </div>
@@ -158,7 +158,7 @@ export default function SettlementsPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 py-5 pb-24 sm:px-6 sm:py-8">
+      <main className="mx-auto max-w-4xl px-3 py-3 pb-20 sm:px-6 sm:py-5">
         {memberSummaries.length === 0 ? (
           <Card className="p-6 text-center sm:p-12">
             <p className="text-sm text-muted-foreground">
@@ -166,9 +166,9 @@ export default function SettlementsPage() {
             </p>
           </Card>
         ) : selectedSummary ? (
-          <div className="space-y-4">
-            <div className="-mx-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
-              <div className="flex min-w-max gap-2">
+          <div className="space-y-3">
+            <div className="-mx-3 overflow-x-auto px-3 pb-1 sm:mx-0 sm:px-0">
+              <div className="flex min-w-max gap-1.5">
                 {memberSummaries.map((summary) => {
                   const isSelected = summary.member.id === selectedSummary.member.id;
 
@@ -177,7 +177,7 @@ export default function SettlementsPage() {
                       key={summary.member.id}
                       type="button"
                       onClick={() => setSelectedMemberId(summary.member.id)}
-                      className={`flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm transition-colors ${
+                      className={`flex min-h-9 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
                         isSelected
                           ? 'border-primary bg-primary text-primary-foreground'
                           : 'border-border bg-card text-foreground hover:bg-muted'
@@ -199,15 +199,15 @@ export default function SettlementsPage() {
               </div>
             </div>
 
-            <Card
-              className="p-4"
+            <div
+              className="rounded-lg bg-card px-3 py-2.5 ring-1 ring-border/70"
               style={{ borderTop: `4px solid ${selectedSummary.member.color}` }}
             >
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <Badge
                     variant="secondary"
-                    className="max-w-full truncate px-3 py-1.5 text-sm font-medium"
+                    className="h-5 max-w-full truncate px-2 text-xs font-medium"
                     style={{
                       backgroundColor: `${selectedSummary.member.color}15`,
                       color: selectedSummary.member.color,
@@ -216,12 +216,12 @@ export default function SettlementsPage() {
                   >
                     {selectedSummary.member.name}
                   </Badge>
-                  <p className="mt-2 text-sm text-muted-foreground">
+                  <p className="mt-1.5 text-xs text-muted-foreground">
                     รายการที่ร่วมหารและต้องจ่ายคืน
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="text-2xl font-serif leading-none text-foreground">
+                  <div className="text-xl font-serif leading-none text-foreground sm:text-2xl">
                     ฿{selectedSummary.total.toLocaleString('th-TH', {
                       minimumFractionDigits: 2,
                     })}
@@ -231,7 +231,7 @@ export default function SettlementsPage() {
                   </p>
                 </div>
               </div>
-            </Card>
+            </div>
 
             {selectedSummary.items.length === 0 ? (
               <Card className="p-6 text-center sm:p-10">
@@ -240,17 +240,17 @@ export default function SettlementsPage() {
                 </p>
               </Card>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-2">
                 {selectedSummary.payees.map((payee) => (
-                  <Card key={payee.member.id} className="p-3 sm:p-4">
-                    <div className="mb-3 flex items-start justify-between gap-3">
+                  <Card key={payee.member.id} className="rounded-lg p-3">
+                    <div className="mb-2.5 flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                           <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="shrink-0 text-sm text-muted-foreground">จ่ายให้</span>
+                          <span className="shrink-0 text-xs text-muted-foreground">จ่ายให้</span>
                           <Badge
                             variant="secondary"
-                            className="min-w-0 max-w-full truncate px-3 py-1 text-sm font-medium"
+                            className="h-5 min-w-0 max-w-full truncate px-2 text-xs font-medium"
                             style={{
                               backgroundColor: `${payee.member.color}15`,
                               color: payee.member.color,
@@ -260,23 +260,23 @@ export default function SettlementsPage() {
                             {payee.member.name}
                           </Badge>
                         </div>
-                        <p className="mt-2 text-xs text-muted-foreground">
+                        <p className="mt-1.5 text-xs text-muted-foreground">
                           จาก {payee.items.length} รายการที่ร่วมหาร
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="text-xs text-muted-foreground">รวม</div>
-                        <div className="text-2xl font-serif leading-none text-foreground">
+                        <div className="text-xl font-serif leading-none text-foreground sm:text-2xl">
                           ฿{payee.total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                         </div>
                       </div>
                     </div>
 
-                    <div className="space-y-2 border-t border-border/60 pt-3">
+                    <div className="space-y-1.5 border-t border-border/60 pt-2.5">
                       {payee.items.map((item) => (
                         <div
                           key={item.expenseIndex}
-                          className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-muted/35 px-3 py-2.5"
+                          className="grid grid-cols-[1fr_auto] gap-3 rounded-md bg-muted/35 px-2.5 py-2"
                         >
                           <div className="min-w-0">
                             <div className="break-words text-sm font-medium leading-snug text-foreground">
@@ -287,7 +287,7 @@ export default function SettlementsPage() {
                               {item.totalAmount.toLocaleString('th-TH')}
                             </div>
                           </div>
-                          <div className="shrink-0 text-right font-serif text-lg leading-none text-foreground">
+                          <div className="shrink-0 text-right font-serif text-base leading-none text-foreground sm:text-lg">
                             ฿{item.amount.toLocaleString('th-TH', {
                               minimumFractionDigits: 2,
                             })}
@@ -307,10 +307,10 @@ export default function SettlementsPage() {
         )}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-border/70 bg-background/95 px-4 py-3 backdrop-blur sm:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-border/70 bg-background/95 px-3 py-2 backdrop-blur sm:hidden">
         <div className="mx-auto max-w-4xl">
           <Link href="/">
-            <Button variant="outline" className="h-11 w-full gap-2">
+            <Button variant="outline" className="h-10 w-full gap-2">
               <ArrowLeft className="w-4 h-4" />
               กลับไปรายการ
             </Button>

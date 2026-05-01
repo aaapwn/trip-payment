@@ -34,7 +34,7 @@ export function ExpenseList({ expenses, members, onDelete }: ExpenseListProps) {
     );
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
       {sortedExpenses.map(({ expense, originalIndex }) => {
         const paidByMember = getMemberById(expense.paidBy);
         const splitMembers = expense.splitWith.map(getMemberById).filter(Boolean) as IMember[];
@@ -43,75 +43,75 @@ export function ExpenseList({ expenses, members, onDelete }: ExpenseListProps) {
         return (
           <Card
             key={originalIndex}
-            className="group p-3 transition-all duration-200 hover:shadow-md sm:p-4"
+            className="group rounded-lg p-3 transition-all duration-200 hover:shadow-md"
           >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex-1 min-w-0">
-                <div className="mb-2 flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="break-words text-base font-medium leading-snug text-foreground">
-                      {expense.description}
-                    </h3>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {format(new Date(expense.date), 'd MMMM yyyy', { locale: th })}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onDelete(originalIndex)}
-                    className="-mr-2 -mt-1 min-h-11 min-w-11 transition-opacity sm:min-h-7 sm:min-w-7 sm:opacity-0 sm:group-hover:opacity-100"
-                  >
-                    <Trash2 className="w-4 h-4 text-destructive" />
-                  </Button>
-                </div>
-
-                <div className="grid gap-2 text-sm sm:flex sm:items-center sm:gap-4">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="shrink-0 text-muted-foreground">จ่ายโดย</span>
-                    {paidByMember && (
-                      <Badge
-                        variant="secondary"
-                        className="min-w-0 max-w-full truncate font-normal"
-                        style={{
-                          backgroundColor: `${paidByMember.color}15`,
-                          color: paidByMember.color,
-                          borderColor: `${paidByMember.color}30`,
-                        }}
-                      >
-                        {paidByMember.name}
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="shrink-0 text-muted-foreground">แชร์กับ</span>
-                    <div className="flex min-w-0 flex-wrap gap-1">
-                      {splitMembers.map((member) => (
-                        <Badge
-                          key={member.id}
-                          variant="outline"
-                          className="max-w-full truncate font-normal text-xs"
-                          style={{
-                            borderColor: `${member.color}30`,
-                            color: member.color,
-                          }}
-                        >
-                          {member.name}
-                        </Badge>
-                      ))}
+            <div className="grid gap-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="break-words text-base font-medium leading-snug text-foreground sm:text-[1.05rem]">
+                        {expense.description}
+                      </h3>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {format(new Date(expense.date), 'd MMM yyyy', { locale: th })}
+                      </p>
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onDelete(originalIndex)}
+                      className="-mr-2 -mt-1 min-h-9 min-w-9 transition-opacity sm:min-h-7 sm:min-w-7 sm:opacity-0 sm:group-hover:opacity-100"
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
                   </div>
                 </div>
-
-                <div className="mt-2 text-xs text-muted-foreground">
-                  ฿{amountPerPerson.toLocaleString('th-TH', { minimumFractionDigits: 2 })} / คน
+                <div className="shrink-0 text-right">
+                  <div className="break-words text-xl font-serif leading-none text-foreground sm:text-2xl">
+                    ฿{expense.amount.toLocaleString('th-TH')}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    ฿{amountPerPerson.toLocaleString('th-TH', { maximumFractionDigits: 2 })} / คน
+                  </div>
                 </div>
               </div>
 
-              <div className="shrink-0 border-t border-border/60 pt-2 text-left sm:border-0 sm:pt-0 sm:text-right">
-                <div className="break-words text-2xl font-serif leading-none text-foreground">
-                  ฿{expense.amount.toLocaleString('th-TH')}
+              <div className="grid gap-1.5 text-sm sm:flex sm:items-center sm:gap-4">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="shrink-0 text-xs text-muted-foreground">จ่ายโดย</span>
+                  {paidByMember && (
+                    <Badge
+                      variant="secondary"
+                      className="h-5 min-w-0 max-w-full truncate px-2 text-xs font-normal"
+                      style={{
+                        backgroundColor: `${paidByMember.color}15`,
+                        color: paidByMember.color,
+                        borderColor: `${paidByMember.color}30`,
+                      }}
+                    >
+                      {paidByMember.name}
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="shrink-0 text-xs text-muted-foreground">แชร์กับ</span>
+                  <div className="flex min-w-0 flex-wrap gap-1">
+                    {splitMembers.map((member) => (
+                      <Badge
+                        key={member.id}
+                        variant="outline"
+                        className="h-5 max-w-full truncate px-2 font-normal text-xs"
+                        style={{
+                          borderColor: `${member.color}30`,
+                          color: member.color,
+                        }}
+                      >
+                        {member.name}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

@@ -158,20 +158,20 @@ export default function HomePage() {
         </div>
       )}
 
-      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/90 backdrop-blur-sm">
-        <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 sm:py-5">
-          <div className="flex items-start justify-between gap-4">
+      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/95 backdrop-blur-sm">
+        <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6 sm:py-4">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <h1 className="text-3xl font-serif text-foreground tracking-tight">
+              <h1 className="text-2xl font-serif leading-none text-foreground tracking-tight sm:text-3xl">
                 หารตัง
               </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
                 {group.members.length} คน · {group.expenses.length} รายการ
               </p>
             </div>
-            <div className="rounded-lg bg-card px-3 py-2 text-right ring-1 ring-border/70">
+            <div className="rounded-md bg-card px-3 py-2 text-right ring-1 ring-border/70">
               <div className="text-xs text-muted-foreground">ยอดรวม</div>
-              <div className="break-words text-2xl font-serif leading-none text-foreground sm:text-3xl">
+              <div className="break-words text-xl font-serif leading-none text-foreground sm:text-2xl">
                 ฿{totalExpenses.toLocaleString('th-TH')}
               </div>
             </div>
@@ -179,10 +179,10 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 py-5 pb-24 sm:px-6 sm:py-8">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <h2 className="text-xl font-serif text-foreground">รายการทั้งหมด</h2>
-          <Button onClick={() => setAddExpenseOpen(true)} className="h-10 gap-2">
+      <main className="mx-auto max-w-4xl px-3 py-3 pb-20 sm:px-6 sm:py-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-serif text-foreground sm:text-xl">รายการทั้งหมด</h2>
+          <Button onClick={() => setAddExpenseOpen(true)} className="h-9 gap-2 px-3">
             <Plus className="w-4 h-4" />
             เพิ่ม
           </Button>
@@ -195,10 +195,10 @@ export default function HomePage() {
         />
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-border/70 bg-background/95 px-4 py-3 backdrop-blur sm:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-border/70 bg-background/95 px-3 py-2 backdrop-blur sm:hidden">
         <div className="mx-auto grid max-w-4xl grid-cols-2 gap-2">
           <Link href="/settlements">
-            <Button variant="outline" className="h-11 w-full gap-2">
+            <Button variant="outline" className="h-10 w-full gap-2">
               <ArrowRightLeft className="w-4 h-4" />
               สรุปโอน
             </Button>
@@ -206,7 +206,7 @@ export default function HomePage() {
           <Button
             onClick={() => setManageMembersOpen(true)}
             variant="outline"
-            className="h-11 gap-2"
+            className="h-10 gap-2"
           >
             <Users className="w-4 h-4" />
             สมาชิก
