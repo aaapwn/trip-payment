@@ -1,36 +1,181 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# หารตัง - ระบบแชร์ค่าใช้จ่าย
 
-## Getting Started
+ระบบคำนวณการแชร์ค่าใช้จ่ายสำหรับกลุ่มเพื่อน บันทึกรายการและคำนวณว่าใครต้องจ่ายใครเท่าไหร่
 
-First, run the development server:
+## ✨ คุณสมบัติ
+
+- 📝 **บันทึกรายการค่าใช้จ่าย** - เพิ่มรายการใหม่ได้ทันที
+- 👥 **จัดการสมาชิก** - เพิ่มลดสมาชิกในกลุ่มได้
+- 🧮 **คำนวณอัตโนมัติ** - คำนวณว่าใครต้องจ่ายใครเท่าไหร่แบบเรียลไทม์
+- 📊 **สถิติแต่ละคน** - ดูยอดจ่ายและยอดค้างของแต่ละคน
+- 💫 **UI สวยงาม** - Minimal design สีสบายตา ใช้งานง่าย
+
+## 🛠️ เทคโนโลยี
+
+- **Frontend**: Next.js 16 + React 19 + TypeScript
+- **UI**: shadcn/ui + Tailwind CSS v4
+- **Database**: MongoDB + Mongoose
+- **Runtime**: Bun
+- **Styling**: OKLCH color space, fluid typography
+
+## 📦 การติดตั้ง
+
+### 1. Clone โปรเจค
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <repository-url>
+cd trip-payment
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. ติดตั้ง Dependencies
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+bun install
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 3. รันโปรเจค (ทดสอบได้ทันที!)
 
-## Learn More
+```bash
+bun run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+เปิดเบราว์เซอร์ที่ [http://localhost:3000](http://localhost:3000)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**หมายเหตุ**: โปรเจคจะใช้ **Mock Data** ในการทดสอบ ข้อมูลจะหายเมื่อรีสตาร์ท server
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 4. (Optional) ตั้งค่า Database จริง
 
-## Deploy on Vercel
+ถ้าต้องการเก็บข้อมูลถาวร:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**Option A: MongoDB Local**
+```bash
+# macOS
+brew install mongodb-community
+brew services start mongodb-community
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Option B: MongoDB Atlas (Free Cloud)**
+1. สมัครที่ https://www.mongodb.com/cloud/atlas/register
+2. สร้าง Free cluster
+3. Get connection string
+
+จากนั้นสร้างไฟล์ `.env.local`:
+
+```env
+MONGODB_URI=mongodb://localhost:27017/trip-payment
+# หรือ
+# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/trip-payment
+```
+
+รีสตาร์ท dev server:
+```bash
+bun run dev
+```
+
+**อ่านเพิ่มเติม**: ดู [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) สำหรับคำแนะนำโดยละเอียด
+
+## 📖 วิธีใช้งาน
+
+### เริ่มต้นใช้งาน
+
+1. **เพิ่มสมาชิก**
+   - กดปุ่ม "เพิ่มสมาชิก"
+   - ใส่ชื่อสมาชิกในกลุ่ม (อย่างน้อย 2 คน)
+   - กดบันทึก
+
+### เพิ่มรายการค่าใช้จ่าย
+
+1. กดปุ่ม **"เพิ่มรายการ"**
+2. ใส่รายละเอียด:
+   - ชื่อรายการ (เช่น ค่าอาหาร, ค่าที่พัก)
+   - จำนวนเงิน
+   - คนที่จ่ายเงิน
+   - เลือกว่าจะแชร์กับใคร
+3. กดเพิ่มรายการ
+
+### ดูสรุปการชำระเงิน
+
+ระบบจะคำนวณและแสดง:
+- **รายการค่าใช้จ่ายทั้งหมด** - เรียงตามวันที่
+- **สรุปการชำระเงิน** - ใครต้องโอนให้ใครเท่าไหร่ (ลดจำนวนการโอนให้น้อยที่สุด)
+- **สถิติแต่ละคน** - ยอดจ่าย ยอดค้าง และยอดสุทธิ
+
+## 🎨 Design System
+
+### สีหลัก (OKLCH)
+
+- **Primary**: Blue tone (250°) - สีหลักของระบบ
+- **Accent**: Green tone (140°) - สำหรับยอดได้รับคืน
+- **Destructive**: Red tone (25°) - สำหรับยอดต้องจ่าย
+- **Background**: Warm neutral - พื้นหลังสีอบอุ่นเล็กน้อย
+
+### Typography
+
+- **Sans-serif**: Inter - ฟอนต์หลักที่อ่านง่าย
+- **Serif**: DM Serif Display - สำหรับหัวข้อและตัวเลขสำคัญ
+
+### Spacing & Rhythm
+
+- Fluid spacing ที่ปรับตามขนาดหน้าจอ
+- Generous whitespace สำหรับความชัดเจน
+- Card-based layout พร้อม subtle shadows
+
+## 🧮 อัลกอริทึมการคำนวณ
+
+ระบบใช้อัลกอริทึม **Greedy Algorithm** ในการคำนวณการชำระเงิน:
+
+1. คำนวณยอดคงเหลือของแต่ละคน (ยอดจ่าย - ยอดค้าง)
+2. แบ่งเป็น 2 กลุ่ม: คนที่ได้เงินคืน (creditors) และคนที่ต้องจ่าย (debtors)
+3. จับคู่เพื่อลดจำนวนการโอนให้น้อยที่สุด
+
+ผลลัพธ์: การโอนเงินที่มีจำนวนรอบน้อยที่สุดเพื่อให้ทุกคนเท่ากัน
+
+## 📁 โครงสร้างโปรเจค
+
+```
+trip-payment/
+├── src/
+│   ├── app/
+│   │   ├── api/
+│   │   │   └── trips/          # API routes
+│   │   ├── trips/
+│   │   │   └── [id]/           # Trip detail page
+│   │   ├── layout.tsx
+│   │   ├── page.tsx            # Home page
+│   │   └── globals.css         # Global styles
+│   ├── components/
+│   │   ├── ui/                 # shadcn/ui components
+│   │   ├── TripCard.tsx
+│   │   ├── NewTripDialog.tsx
+│   │   ├── ExpenseList.tsx
+│   │   ├── SettlementSummary.tsx
+│   │   ├── MemberStats.tsx
+│   │   └── AddExpenseDialog.tsx
+│   ├── lib/
+│   │   ├── mongodb.ts          # Database connection
+│   │   ├── calculations.ts     # Settlement algorithm
+│   │   └── utils.ts
+│   └── models/
+│       └── Trip.ts             # Mongoose models
+├── .env.local                  # Environment variables
+├── package.json
+└── README.md
+```
+
+## 🚀 Production Build
+
+```bash
+# Build
+bun run build
+
+# Start production server
+bun run start
+```
+
+## 📝 License
+
+MIT
+
+---
+
+สร้างด้วย ❤️ สำหรับเพื่อนๆ ที่ชอบไปเที่ยวด้วยกัน
