@@ -14,15 +14,21 @@ interface ShareLine {
   expenseIndex: number;
   description: string;
   date: Date;
-  paidByMember: IMember;
   amount: number;
   totalAmount: number;
+}
+
+interface PayeeGroup {
+  member: IMember;
+  total: number;
+  items: ShareLine[];
 }
 
 interface MemberShareSummary {
   member: IMember;
   total: number;
   items: ShareLine[];
+  payees: PayeeGroup[];
 }
 
 export default function SettlementsPage() {
@@ -55,34 +61,56 @@ export default function SettlementsPage() {
 
     return group.members
       .map((member) => {
-        const items = group.expenses
-          .map((expense, expenseIndex) => {
-            const paidByMember = group.members.find((item) => item.id === expense.paidBy);
+        const payeeMap = new Map<string, PayeeGroup>();
 
-            if (
-              !paidByMember ||
-              expense.paidBy === member.id ||
-              !expense.splitWith.includes(member.id)
-            ) {
-              return null;
-            }
+        group.expenses.forEach((expense, expenseIndex) => {
+          const paidByMember = group.members.find((item) => item.id === expense.paidBy);
 
-            return {
-              expenseIndex,
-              description: expense.description,
-              date: expense.date,
-              paidByMember,
-              amount: expense.amount / expense.splitWith.length,
-              totalAmount: expense.amount,
-            };
-          })
-          .filter(Boolean) as ShareLine[];
+          if (
+            !paidByMember ||
+            expense.paidBy === member.id ||
+            !expense.splitWith.includes(member.id)
+          ) {
+            return;
+          }
+
+          const line: ShareLine = {
+            expenseIndex,
+            description: expense.description,
+            date: expense.date,
+            amount: expense.amount / expense.splitWith.length,
+            totalAmount: expense.amount,
+          };
+
+          const existingPayee = payeeMap.get(paidByMember.id);
+
+          if (existingPayee) {
+            existingPayee.items.push(line);
+            existingPayee.total += line.amount;
+          } else {
+            payeeMap.set(paidByMember.id, {
+              member: paidByMember,
+              total: line.amount,
+              items: [line],
+            });
+          }
+        });
+
+        const payees = Array.from(payeeMap.values())
+          .map((payee) => ({
+            ...payee,
+            items: payee.items.sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+            ),
+          }))
+          .sort((a, b) => b.total - a.total);
+
+        const items = payees.flatMap((payee) => payee.items);
 
         return {
           member,
-          items: items.sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-          ),
+          payees,
+          items,
           total: items.reduce((sum, item) => sum + item.amount, 0),
         };
       });
@@ -213,41 +241,59 @@ export default function SettlementsPage() {
               </Card>
             ) : (
               <div className="space-y-2.5">
-                {selectedSummary.items.map((item) => (
-                  <Card key={item.expenseIndex} className="p-3 sm:p-4">
-                    <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
+                {selectedSummary.payees.map((payee) => (
+                  <Card key={payee.member.id} className="p-3 sm:p-4">
+                    <div className="mb-3 flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <h2 className="break-words text-base font-medium leading-snug text-foreground">
-                          {item.description}
-                        </h2>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {format(new Date(item.date), 'd MMMM yyyy', { locale: th })} · ยอดรายการ ฿
-                          {item.totalAmount.toLocaleString('th-TH')}
-                        </p>
-                        <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                           <span className="shrink-0 text-sm text-muted-foreground">จ่ายให้</span>
                           <Badge
                             variant="secondary"
-                            className="min-w-0 max-w-full truncate font-normal"
+                            className="min-w-0 max-w-full truncate px-3 py-1 text-sm font-medium"
                             style={{
-                              backgroundColor: `${item.paidByMember.color}15`,
-                              color: item.paidByMember.color,
-                              borderColor: `${item.paidByMember.color}30`,
+                              backgroundColor: `${payee.member.color}15`,
+                              color: payee.member.color,
+                              borderColor: `${payee.member.color}30`,
                             }}
                           >
-                            {item.paidByMember.name}
+                            {payee.member.name}
                           </Badge>
                         </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          จาก {payee.items.length} รายการที่ร่วมหาร
+                        </p>
                       </div>
-                      <div className="border-t border-border/60 pt-2 text-left sm:border-0 sm:pt-0 sm:text-right">
-                        <div className="text-xs text-muted-foreground">ต้องจ่าย</div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-xs text-muted-foreground">รวม</div>
                         <div className="text-2xl font-serif leading-none text-foreground">
-                          ฿{item.amount.toLocaleString('th-TH', {
-                            minimumFractionDigits: 2,
-                          })}
+                          ฿{payee.total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                         </div>
                       </div>
+                    </div>
+
+                    <div className="space-y-2 border-t border-border/60 pt-3">
+                      {payee.items.map((item) => (
+                        <div
+                          key={item.expenseIndex}
+                          className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-muted/35 px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="break-words text-sm font-medium leading-snug text-foreground">
+                              {item.description}
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {format(new Date(item.date), 'd MMM yyyy', { locale: th })} · ยอดรายการ ฿
+                              {item.totalAmount.toLocaleString('th-TH')}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right font-serif text-lg leading-none text-foreground">
+                            ฿{item.amount.toLocaleString('th-TH', {
+                              minimumFractionDigits: 2,
+                            })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </Card>
                 ))}
