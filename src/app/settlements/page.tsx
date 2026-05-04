@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, Users } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { ArrowLeft, ArrowRight, CheckCircle2, Landmark, UserRoundSearch, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { th } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { IGroup, IMember } from '@/models/Group';
 
 interface ShareLine {
@@ -31,10 +33,20 @@ interface MemberShareSummary {
   payees: PayeeGroup[];
 }
 
+const formatCurrency = (amount: number) =>
+  `฿${amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+
+const getPaymentKey = (fromMemberId: string, toMemberId: string, amount: number) =>
+  `${fromMemberId}->${toMemberId}:${Math.round(amount * 100)}`;
+
 export default function SettlementsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [group, setGroup] = useState<IGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [savingPaymentKey, setSavingPaymentKey] = useState<string | null>(null);
 
   const fetchGroup = useCallback(async () => {
     try {
@@ -65,35 +77,47 @@ export default function SettlementsPage() {
 
         group.expenses.forEach((expense, expenseIndex) => {
           const paidByMember = group.members.find((item) => item.id === expense.paidBy);
+          const shareAmount = expense.amount / expense.splitWith.length;
+          const isRefund = shareAmount < 0;
+          const shouldPay = isRefund
+            ? expense.paidBy === member.id
+            : expense.paidBy !== member.id && expense.splitWith.includes(member.id);
 
-          if (
-            !paidByMember ||
-            expense.paidBy === member.id ||
-            !expense.splitWith.includes(member.id)
-          ) {
+          if (!paidByMember || !shouldPay) {
             return;
           }
 
-          const line: ShareLine = {
-            expenseIndex,
-            description: expense.description,
-            date: expense.date,
-            amount: expense.amount / expense.splitWith.length,
-            totalAmount: expense.amount,
-          };
+          const payeeMembers: IMember[] = isRefund
+            ? expense.splitWith
+                .filter((memberId) => memberId !== expense.paidBy)
+                .map((memberId) => group.members.find((item) => item.id === memberId))
+                .filter((item): item is IMember => Boolean(item))
+            : [paidByMember];
 
-          const existingPayee = payeeMap.get(paidByMember.id);
+          payeeMembers.forEach((payeeMember) => {
+            if (!payeeMember) return;
 
-          if (existingPayee) {
-            existingPayee.items.push(line);
-            existingPayee.total += line.amount;
-          } else {
-            payeeMap.set(paidByMember.id, {
-              member: paidByMember,
-              total: line.amount,
-              items: [line],
-            });
-          }
+            const line: ShareLine = {
+              expenseIndex,
+              description: expense.description,
+              date: expense.date,
+              amount: Math.abs(shareAmount),
+              totalAmount: expense.amount,
+            };
+
+            const existingPayee = payeeMap.get(payeeMember.id);
+
+            if (existingPayee) {
+              existingPayee.items.push(line);
+              existingPayee.total += line.amount;
+            } else {
+              payeeMap.set(payeeMember.id, {
+                member: payeeMember,
+                total: line.amount,
+                items: [line],
+              });
+            }
+          });
         });
 
         const payees = Array.from(payeeMap.values())
@@ -116,10 +140,42 @@ export default function SettlementsPage() {
       });
   }, [group]);
 
+  const memberIdFromQuery = searchParams.get('memberId');
   const selectedSummary =
     memberSummaries.find((item) => item.member.id === selectedMemberId) ??
+    memberSummaries.find((item) => item.member.id === memberIdFromQuery) ??
     memberSummaries[0];
   const totalItems = memberSummaries.reduce((sum, item) => sum + item.items.length, 0);
+  const paidSettlementKeys = group?.paidSettlementKeys ?? [];
+
+  const togglePayment = async (paymentKey: string) => {
+    if (!group || savingPaymentKey) return;
+
+    const currentKeys = group.paidSettlementKeys ?? [];
+    const nextKeys = currentKeys.includes(paymentKey)
+      ? currentKeys.filter((key) => key !== paymentKey)
+      : [...currentKeys, paymentKey];
+
+    setSavingPaymentKey(paymentKey);
+    setGroup({ ...group, paidSettlementKeys: nextKeys });
+
+    try {
+      const response = await fetch('/api/group', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paidSettlementKeys: nextKeys }),
+      });
+
+      if (!response.ok) {
+        setGroup(group);
+      }
+    } catch (error) {
+      console.error('Failed to update payment status:', error);
+      setGroup(group);
+    } finally {
+      setSavingPaymentKey(null);
+    }
+  };
 
   if (loading || !group) {
     return (
@@ -176,7 +232,12 @@ export default function SettlementsPage() {
                     <button
                       key={summary.member.id}
                       type="button"
-                      onClick={() => setSelectedMemberId(summary.member.id)}
+                      onClick={() => {
+                        setSelectedMemberId(summary.member.id);
+                        router.replace(`${pathname}?memberId=${summary.member.id}`, {
+                          scroll: false,
+                        });
+                      }}
                       className={`flex min-h-9 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors ${
                         isSelected
                           ? 'border-primary bg-primary text-primary-foreground'
@@ -203,7 +264,7 @@ export default function SettlementsPage() {
               className="rounded-lg bg-card px-3 py-2.5 ring-1 ring-border/70"
               style={{ borderTop: `4px solid ${selectedSummary.member.color}` }}
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <Badge
                     variant="secondary"
@@ -222,9 +283,7 @@ export default function SettlementsPage() {
                 </div>
                 <div className="shrink-0 text-right">
                   <div className="text-xl font-serif leading-none text-foreground sm:text-2xl">
-                    ฿{selectedSummary.total.toLocaleString('th-TH', {
-                      minimumFractionDigits: 2,
-                    })}
+                    {formatCurrency(selectedSummary.total)}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {selectedSummary.items.length} รายการ
@@ -241,62 +300,92 @@ export default function SettlementsPage() {
               </Card>
             ) : (
               <div className="space-y-2">
-                {selectedSummary.payees.map((payee) => (
-                  <Card key={payee.member.id} className="rounded-lg p-3">
-                    <div className="mb-2.5 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="shrink-0 text-xs text-muted-foreground">จ่ายให้</span>
-                          <Badge
-                            variant="secondary"
-                            className="h-5 min-w-0 max-w-full truncate px-2 text-xs font-medium"
-                            style={{
-                              backgroundColor: `${payee.member.color}15`,
-                              color: payee.member.color,
-                              borderColor: `${payee.member.color}30`,
-                            }}
-                          >
-                            {payee.member.name}
-                          </Badge>
-                        </div>
-                        <p className="mt-1.5 text-xs text-muted-foreground">
-                          จาก {payee.items.length} รายการที่ร่วมหาร
-                        </p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-xs text-muted-foreground">รวม</div>
-                        <div className="text-xl font-serif leading-none text-foreground sm:text-2xl">
-                          ฿{payee.total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                        </div>
-                      </div>
-                    </div>
+                {selectedSummary.payees.map((payee) => {
+                  const paymentKey = getPaymentKey(
+                    selectedSummary.member.id,
+                    payee.member.id,
+                    payee.total
+                  );
+                  const isPaid = paidSettlementKeys.includes(paymentKey);
 
-                    <div className="space-y-1.5 border-t border-border/60 pt-2.5">
-                      {payee.items.map((item) => (
-                        <div
-                          key={item.expenseIndex}
-                          className="grid grid-cols-[1fr_auto] gap-3 rounded-md bg-muted/35 px-2.5 py-2"
-                        >
-                          <div className="min-w-0">
-                            <div className="break-words text-sm font-medium leading-snug text-foreground">
-                              {item.description}
-                            </div>
-                            <div className="mt-0.5 text-xs text-muted-foreground">
-                              {format(new Date(item.date), 'd MMM yyyy', { locale: th })} · ยอดรายการ ฿
-                              {item.totalAmount.toLocaleString('th-TH')}
-                            </div>
+                  return (
+                    <Card
+                      key={payee.member.id}
+                      className={`rounded-lg p-3 transition-colors ${
+                        isPaid ? 'bg-accent/5 ring-1 ring-accent/20' : ''
+                      }`}
+                    >
+                      <div className="mb-2.5 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="shrink-0 text-xs text-muted-foreground">จ่ายให้</span>
+                            <Badge
+                              variant="secondary"
+                              className="h-5 min-w-0 max-w-full truncate px-2 text-xs font-medium"
+                              style={{
+                                backgroundColor: `${payee.member.color}15`,
+                                color: payee.member.color,
+                                borderColor: `${payee.member.color}30`,
+                              }}
+                            >
+                              {payee.member.name}
+                            </Badge>
+                            {isPaid && (
+                              <Badge
+                                variant="secondary"
+                                className="h-5 gap-1 bg-accent/10 px-2 text-xs font-medium text-accent"
+                              >
+                                <CheckCircle2 className="h-3 w-3" />
+                                จ่ายแล้ว
+                              </Badge>
+                            )}
                           </div>
-                          <div className="shrink-0 text-right font-serif text-base leading-none text-foreground sm:text-lg">
-                            ฿{item.amount.toLocaleString('th-TH', {
-                              minimumFractionDigits: 2,
-                            })}
+                          <p className="mt-1.5 text-xs text-muted-foreground">
+                            จาก {payee.items.length} รายการที่ร่วมหาร
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-xs text-muted-foreground">รวม</div>
+                          <div className="text-xl font-serif leading-none text-foreground sm:text-2xl">
+                            {formatCurrency(payee.total)}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </Card>
-                ))}
+                      </div>
+
+                      <label className="mb-2.5 flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-border/70 bg-background/70 px-2.5 text-sm transition-colors hover:bg-muted/60">
+                        <Checkbox
+                          checked={isPaid}
+                          disabled={savingPaymentKey === paymentKey}
+                          onCheckedChange={() => togglePayment(paymentKey)}
+                        />
+                        <span className="text-foreground">จ่ายให้ {payee.member.name} แล้ว</span>
+                      </label>
+
+                      <div className="space-y-1.5 border-t border-border/60 pt-2.5">
+                        {payee.items.map((item) => (
+                          <div
+                            key={item.expenseIndex}
+                            className="grid grid-cols-[1fr_auto] gap-3 rounded-md bg-muted/35 px-2.5 py-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="break-words text-sm font-medium leading-snug text-foreground">
+                                {item.description}
+                              </div>
+                              <div className="mt-0.5 text-xs text-muted-foreground">
+                                {format(new Date(item.date), 'd MMM yyyy', { locale: th })} · ยอดรายการ{' '}
+                                {formatCurrency(Math.abs(item.totalAmount))}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right font-serif text-base leading-none text-foreground sm:text-lg">
+                              {formatCurrency(item.amount)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </div>

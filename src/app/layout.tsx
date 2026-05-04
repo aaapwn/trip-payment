@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, DM_Serif_Display } from "next/font/google";
 import "./globals.css";
+import { AppSidebar } from "@/components/AppSidebar";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -30,7 +31,12 @@ export default function RootLayout({
       lang="th"
       className={`${inter.variable} ${dmSerif.variable} h-full`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full bg-background text-foreground">
+        <div className="min-h-screen md:flex">
+          <AppSidebar />
+          <main className="min-w-0 flex-1">{children}</main>
+        </div>
+      </body>
     </html>
   );
 }

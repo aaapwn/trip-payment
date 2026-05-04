@@ -26,6 +26,7 @@ export interface IGroup {
   _id?: string;
   members: IMember[];
   expenses: IExpense[];
+  paidSettlementKeys?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,6 +50,7 @@ const GroupSchema = new Schema<IGroup>(
   {
     members: [MemberSchema],
     expenses: [ExpenseSchema],
+    paidSettlementKeys: [{ type: String }],
   },
   {
     timestamps: true,

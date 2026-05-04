@@ -25,7 +25,9 @@ interface AddExpenseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   members: IMember[];
-  onSuccess: (expense: Omit<IExpense, '_id'>) => void;
+  onSuccess: (expense: IExpense) => void;
+  initialExpense?: IExpense | null;
+  mode?: 'add' | 'edit';
 }
 
 export function AddExpenseDialog({
@@ -33,11 +35,15 @@ export function AddExpenseDialog({
   onOpenChange,
   members,
   onSuccess,
+  initialExpense = null,
+  mode = 'add',
 }: AddExpenseDialogProps) {
-  const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
-  const [paidBy, setPaidBy] = useState('');
-  const [splitWith, setSplitWith] = useState<string[]>([]);
+  const [description, setDescription] = useState(() => initialExpense?.description ?? '');
+  const [amount, setAmount] = useState(() =>
+    initialExpense ? String(initialExpense.amount) : ''
+  );
+  const [paidBy, setPaidBy] = useState(() => initialExpense?.paidBy ?? '');
+  const [splitWith, setSplitWith] = useState<string[]>(() => initialExpense?.splitWith ?? []);
   const [loading, setLoading] = useState(false);
 
   const toggleMember = (memberId: string) => {
@@ -58,16 +64,18 @@ export function AddExpenseDialog({
 
     setLoading(true);
     try {
-      const expense: Omit<IExpense, '_id'> = {
+      const expense: IExpense = {
+        ...(initialExpense?._id ? { _id: initialExpense._id } : {}),
         description: description.trim(),
         amount: parseFloat(amount),
         paidBy,
         splitWith,
-        date: new Date(),
+        date: initialExpense?.date ? new Date(initialExpense.date) : new Date(),
+        ...(initialExpense?.category ? { category: initialExpense.category } : {}),
       };
 
       await onSuccess(expense);
-      
+
       setDescription('');
       setAmount('');
       setPaidBy('');
@@ -80,12 +88,15 @@ export function AddExpenseDialog({
   };
 
   const paidByMember = members.find((m) => m.id === paidBy);
+  const isEditing = mode === 'edit';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle className="pr-8 text-xl font-serif sm:text-2xl">เพิ่มรายการค่าใช้จ่าย</DialogTitle>
+          <DialogTitle className="pr-8 text-xl font-serif sm:text-2xl">
+            {isEditing ? 'แก้ไขรายการค่าใช้จ่าย' : 'เพิ่มรายการค่าใช้จ่าย'}
+          </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6 mt-4">
@@ -232,7 +243,13 @@ export function AddExpenseDialog({
                 loading
               }
             >
-              {loading ? 'กำลังเพิ่ม...' : 'เพิ่มรายการ'}
+              {loading
+                ? isEditing
+                  ? 'กำลังบันทึก...'
+                  : 'กำลังเพิ่ม...'
+                : isEditing
+                  ? 'บันทึก'
+                  : 'เพิ่มรายการ'}
             </Button>
           </div>
         </form>

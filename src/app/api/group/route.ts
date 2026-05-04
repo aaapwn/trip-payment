@@ -30,6 +30,7 @@ const mockGroup = {
       date: new Date('2026-04-28'),
     },
   ],
+  paidSettlementKeys: [],
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -49,6 +50,7 @@ export async function GET() {
       group = await Group.create({
         members: [],
         expenses: [],
+        paidSettlementKeys: [],
       });
     }
     

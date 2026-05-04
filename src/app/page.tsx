@@ -13,6 +13,7 @@ export default function HomePage() {
   const [group, setGroup] = useState<IGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const [editingExpenseIndex, setEditingExpenseIndex] = useState<number | null>(null);
   const [manageMembersOpen, setManageMembersOpen] = useState(false);
   const [isMockMode, setIsMockMode] = useState(false);
 
@@ -40,7 +41,7 @@ export default function HomePage() {
     fetchGroup();
   }, [fetchGroup]);
 
-  const handleExpenseAdded = async (expense: Omit<IExpense, '_id'>) => {
+  const handleExpenseAdded = async (expense: IExpense) => {
     if (!group) return;
 
     try {
@@ -58,6 +59,31 @@ export default function HomePage() {
       }
     } catch (error) {
       console.error('Failed to add expense:', error);
+    }
+  };
+
+  const handleExpenseUpdated = async (expense: IExpense) => {
+    if (!group || editingExpenseIndex === null) return;
+
+    const updatedExpenses = group.expenses.map((currentExpense, index) =>
+      index === editingExpenseIndex ? expense : currentExpense
+    );
+
+    try {
+      const response = await fetch('/api/group', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expenses: updatedExpenses,
+        }),
+      });
+
+      if (response.ok) {
+        setEditingExpenseIndex(null);
+        fetchGroup();
+      }
+    } catch (error) {
+      console.error('Failed to update expense:', error);
     }
   };
 
@@ -147,6 +173,8 @@ export default function HomePage() {
   }
 
   const totalExpenses = group.expenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const editingExpense =
+    editingExpenseIndex === null ? null : group.expenses[editingExpenseIndex] ?? null;
 
   return (
     <div className="min-h-screen">
@@ -191,18 +219,13 @@ export default function HomePage() {
         <ExpenseList
           expenses={group.expenses}
           members={group.members}
+          onEdit={setEditingExpenseIndex}
           onDelete={handleExpenseDeleted}
         />
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-border/70 bg-background/95 px-3 py-2 backdrop-blur sm:hidden">
         <div className="mx-auto grid max-w-4xl grid-cols-2 gap-2">
-          <Link href="/settlements">
-            <Button variant="outline" className="h-10 w-full gap-2">
-              <ArrowRightLeft className="w-4 h-4" />
-              สรุปโอน
-            </Button>
-          </Link>
           <Button
             onClick={() => setManageMembersOpen(true)}
             variant="outline"
@@ -215,12 +238,6 @@ export default function HomePage() {
       </nav>
 
       <div className="fixed right-6 bottom-6 z-10 hidden gap-2 sm:flex">
-        <Link href="/settlements">
-          <Button variant="outline" className="h-10 gap-2">
-            <ArrowRightLeft className="w-4 h-4" />
-            สรุปโอน
-          </Button>
-        </Link>
         <Button
           onClick={() => setManageMembersOpen(true)}
           variant="outline"
@@ -231,12 +248,28 @@ export default function HomePage() {
         </Button>
       </div>
 
-      <AddExpenseDialog
-        open={addExpenseOpen}
-        onOpenChange={setAddExpenseOpen}
-        members={group.members}
-        onSuccess={handleExpenseAdded}
-      />
+      {addExpenseOpen && (
+        <AddExpenseDialog
+          open={addExpenseOpen}
+          onOpenChange={setAddExpenseOpen}
+          members={group.members}
+          onSuccess={handleExpenseAdded}
+        />
+      )}
+
+      {editingExpense && (
+        <AddExpenseDialog
+          key={editingExpenseIndex}
+          open={editingExpenseIndex !== null}
+          onOpenChange={(open) => {
+            if (!open) setEditingExpenseIndex(null);
+          }}
+          members={group.members}
+          onSuccess={handleExpenseUpdated}
+          initialExpense={editingExpense}
+          mode="edit"
+        />
+      )}
 
       <ManageMembersDialog
         open={manageMembersOpen}
