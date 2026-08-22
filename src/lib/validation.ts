@@ -11,6 +11,7 @@ const memberSchema = z.strictObject({
 
 const expenseSchema = z.strictObject({
   _id: z.string().max(64).optional(),
+  key: z.string().min(1).max(64).optional(),
   description: z.string().trim().min(1).max(200),
   amount: z
     .number()
@@ -21,10 +22,10 @@ const expenseSchema = z.strictObject({
   date: z.coerce.date(),
 });
 
-const paidSettlementSchema = z.strictObject({
+const paidShareSchema = z.strictObject({
+  expenseKey: z.string().min(1).max(64),
   from: z.string().min(1).max(64),
   to: z.string().min(1).max(64),
-  amount: z.number().refine(Number.isFinite, 'ยอดที่จ่ายไม่ถูกต้อง').nonnegative(),
   paidAt: z.coerce.date().optional(),
 });
 
@@ -36,7 +37,7 @@ export const groupPatchSchema = z
   .strictObject({
     members: z.array(memberSchema).max(200).optional(),
     expenses: z.array(expenseSchema).max(5000).optional(),
-    paidSettlements: z.array(paidSettlementSchema).max(5000).optional(),
+    paidShares: z.array(paidShareSchema).max(20000).optional(),
     /** Optimistic concurrency token: the `updatedAt` the client last read. */
     expectedUpdatedAt: z.coerce.date().optional(),
   })
@@ -44,8 +45,8 @@ export const groupPatchSchema = z
     (body) =>
       body.members !== undefined ||
       body.expenses !== undefined ||
-      body.paidSettlements !== undefined,
-    'ต้องระบุ members, expenses หรือ paidSettlements อย่างน้อยหนึ่งอย่าง'
+      body.paidShares !== undefined,
+    'ต้องระบุ members, expenses หรือ paidShares อย่างน้อยหนึ่งอย่าง'
   );
 
 export type GroupPatchBody = z.infer<typeof groupPatchSchema>;

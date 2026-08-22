@@ -1,15 +1,14 @@
-import { IExpense, IGroup, IMember, IPaidSettlement } from '@/models/Group';
+import { IExpense, IGroup, IMember, IPaidShare } from '@/models/Group';
 
 /** Sub-satang tolerance used for every money comparison. */
 export const MONEY_EPSILON = 0.005;
 
 const DELETED_MEMBER_COLOR = '#9CA3AF';
 
-export const formatCurrency = (amount: number) =>
-  `฿${amount.toLocaleString('th-TH', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+type GroupLike = Pick<
+  IGroup,
+  'members' | 'expenses' | 'paidShares' | 'paidSettlements' | 'paidSettlementKeys'
+>;
 
 /**
  * Members referenced by an expense may no longer exist (removed while their
@@ -32,12 +31,32 @@ export function isMemberReferenced(expenses: IExpense[], memberId: string) {
   );
 }
 
+/**
+ * Identity of an expense for paid marks. `key` is written by the client and
+ * backfilled on save; the fallbacks keep older rows usable until then.
+ */
+export function expenseKeyOf(expense: IExpense, index: number): string {
+  if (expense.key) return expense.key;
+  if (expense._id) return String(expense._id);
+
+  return `idx:${index}`;
+}
+
+export function pairKey(fromMemberId: string, toMemberId: string) {
+  return `${fromMemberId}->${toMemberId}`;
+}
+
+const shareKey = (expenseKey: string, fromMemberId: string, toMemberId: string) =>
+  `${expenseKey}|${fromMemberId}->${toMemberId}`;
+
 export interface ShareLine {
+  expenseKey: string;
   expenseIndex: number;
   description: string;
   date: Date;
   amount: number;
   totalAmount: number;
+  isPaid: boolean;
 }
 
 /** One direction of debt: `from` owes `to`. */
@@ -47,80 +66,16 @@ export interface DebtPair {
   total: number;
   paidAmount: number;
   outstanding: number;
+  paidCount: number;
   isSettled: boolean;
   isPartiallyPaid: boolean;
   items: ShareLine[];
 }
 
-/**
- * Legacy `from->to:cents` keys are migrated on read so that ticking "paid"
- * before this change is not lost.
- */
-export function readPaidSettlements(
-  group: Pick<IGroup, 'paidSettlements' | 'paidSettlementKeys'>
-): IPaidSettlement[] {
-  const records = (group.paidSettlements ?? []).map((record) => ({
-    from: record.from,
-    to: record.to,
-    amount: record.amount,
-    paidAt: record.paidAt,
-  }));
-  const seen = new Set(records.map((record) => pairKey(record.from, record.to)));
-
-  for (const legacyKey of group.paidSettlementKeys ?? []) {
-    const match = /^(.+)->(.+):(\d+)$/.exec(legacyKey);
-    if (!match) continue;
-
-    const [, from, to, cents] = match;
-    if (seen.has(pairKey(from, to))) continue;
-
-    seen.add(pairKey(from, to));
-    records.push({ from, to, amount: Number(cents) / 100, paidAt: new Date(0) });
-  }
-
-  return records;
-}
-
-export function pairKey(fromMemberId: string, toMemberId: string) {
-  return `${fromMemberId}->${toMemberId}`;
-}
-
-export function getPaidAmount(
-  paidSettlements: IPaidSettlement[],
-  fromMemberId: string,
-  toMemberId: string
-) {
-  return (
-    paidSettlements.find(
-      (record) => record.from === fromMemberId && record.to === toMemberId
-    )?.amount ?? 0
-  );
-}
-
-/**
- * Marks the debt as fully settled, or clears it when it already is.
- * The recorded amount is what has actually been transferred, so a later
- * expense increases the outstanding balance instead of resetting the tick.
- */
-export function togglePaidSettlement(
-  paidSettlements: IPaidSettlement[],
-  fromMemberId: string,
-  toMemberId: string,
-  total: number
-): IPaidSettlement[] {
-  const others = paidSettlements.filter(
-    (record) => !(record.from === fromMemberId && record.to === toMemberId)
-  );
-  const paidAmount = getPaidAmount(paidSettlements, fromMemberId, toMemberId);
-
-  if (paidAmount >= total - MONEY_EPSILON) {
-    return others;
-  }
-
-  return [
-    ...others,
-    { from: fromMemberId, to: toMemberId, amount: total, paidAt: new Date() },
-  ];
+interface RawPair {
+  from: IMember;
+  to: IMember;
+  items: Omit<ShareLine, 'isPaid'>[];
 }
 
 /**
@@ -128,11 +83,8 @@ export function togglePaidSettlement(
  * expense is repaid to whoever fronted it — debts in opposite directions are
  * deliberately not netted off against each other).
  */
-export function buildDebtPairs(
-  group: Pick<IGroup, 'members' | 'expenses' | 'paidSettlements' | 'paidSettlementKeys'>
-): DebtPair[] {
-  const paidSettlements = readPaidSettlements(group);
-  const pairs = new Map<string, DebtPair>();
+function buildRawPairs(group: Pick<IGroup, 'members' | 'expenses'>): RawPair[] {
+  const pairs = new Map<string, RawPair>();
 
   group.expenses.forEach((expense, expenseIndex) => {
     if (expense.splitWith.length === 0) return;
@@ -140,18 +92,18 @@ export function buildDebtPairs(
     const shareAmount = expense.amount / expense.splitWith.length;
     const isRefund = shareAmount < 0;
     const payer = resolveMember(group.members, expense.paidBy);
+    const others = expense.splitWith.filter((memberId) => memberId !== expense.paidBy);
 
     // A refund flips the direction: whoever collected it owes everyone a share.
-    const debts = isRefund
-      ? expense.splitWith
-          .filter((memberId) => memberId !== expense.paidBy)
-          .map((memberId) => ({ from: payer, to: resolveMember(group.members, memberId) }))
-      : expense.splitWith
-          .filter((memberId) => memberId !== expense.paidBy)
-          .map((memberId) => ({ from: resolveMember(group.members, memberId), to: payer }));
+    const debts = others.map((memberId) => {
+      const other = resolveMember(group.members, memberId);
+
+      return isRefund ? { from: payer, to: other } : { from: other, to: payer };
+    });
 
     for (const { from, to } of debts) {
-      const line: ShareLine = {
+      const line = {
+        expenseKey: expenseKeyOf(expense, expenseIndex),
         expenseIndex,
         description: expense.description,
         date: expense.date,
@@ -164,37 +116,167 @@ export function buildDebtPairs(
 
       if (existing) {
         existing.items.push(line);
-        existing.total += line.amount;
       } else {
-        pairs.set(key, {
-          from,
-          to,
-          total: line.amount,
-          paidAmount: 0,
-          outstanding: 0,
-          isSettled: false,
-          isPartiallyPaid: false,
-          items: [line],
-        });
+        pairs.set(key, { from, to, items: [line] });
       }
     }
   });
 
-  return Array.from(pairs.values()).map((pair) => {
-    const paidAmount = Math.min(
-      getPaidAmount(paidSettlements, pair.from.id, pair.to.id),
-      pair.total
+  return Array.from(pairs.values());
+}
+
+/**
+ * Paid marks, migrating the two older shapes on read so nothing anyone ticked
+ * is lost:
+ *   - `paidSettlements`: a transferred amount per pair
+ *   - `paidSettlementKeys`: legacy `from->to:cents` strings
+ * Both only knew a total, so the amount is spent across that pair's shares
+ * oldest first — the shares that existed when the money moved.
+ */
+export function readPaidShares(group: GroupLike): IPaidShare[] {
+  if (group.paidShares && group.paidShares.length > 0) {
+    return group.paidShares.map((record) => ({
+      expenseKey: record.expenseKey,
+      from: record.from,
+      to: record.to,
+      paidAt: record.paidAt,
+    }));
+  }
+
+  const legacyAmounts = new Map<string, number>();
+
+  for (const record of group.paidSettlements ?? []) {
+    legacyAmounts.set(pairKey(record.from, record.to), record.amount);
+  }
+
+  for (const legacyKey of group.paidSettlementKeys ?? []) {
+    const match = /^(.+)->(.+):(\d+)$/.exec(legacyKey);
+    if (!match) continue;
+
+    const [, from, to, cents] = match;
+    const key = pairKey(from, to);
+    if (!legacyAmounts.has(key)) legacyAmounts.set(key, Number(cents) / 100);
+  }
+
+  if (legacyAmounts.size === 0) return [];
+
+  const migrated: IPaidShare[] = [];
+
+  for (const pair of buildRawPairs(group)) {
+    let remaining = legacyAmounts.get(pairKey(pair.from.id, pair.to.id)) ?? 0;
+    if (remaining <= MONEY_EPSILON) continue;
+
+    const oldestFirst = [...pair.items].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
 
+    for (const item of oldestFirst) {
+      if (item.amount > remaining + MONEY_EPSILON) continue;
+
+      remaining -= item.amount;
+      migrated.push({
+        expenseKey: item.expenseKey,
+        from: pair.from.id,
+        to: pair.to.id,
+        paidAt: new Date(0),
+      });
+    }
+  }
+
+  return migrated;
+}
+
+export function isSharePaid(
+  paidShares: IPaidShare[],
+  expenseKey: string,
+  fromMemberId: string,
+  toMemberId: string
+) {
+  return paidShares.some(
+    (record) =>
+      record.expenseKey === expenseKey &&
+      record.from === fromMemberId &&
+      record.to === toMemberId
+  );
+}
+
+/** Marks one share paid, or clears it when it already is. */
+export function togglePaidShare(
+  paidShares: IPaidShare[],
+  expenseKey: string,
+  fromMemberId: string,
+  toMemberId: string
+): IPaidShare[] {
+  if (isSharePaid(paidShares, expenseKey, fromMemberId, toMemberId)) {
+    return paidShares.filter(
+      (record) =>
+        !(
+          record.expenseKey === expenseKey &&
+          record.from === fromMemberId &&
+          record.to === toMemberId
+        )
+    );
+  }
+
+  return [
+    ...paidShares,
+    { expenseKey, from: fromMemberId, to: toMemberId, paidAt: new Date() },
+  ];
+}
+
+/** Marks every share of one pair paid, or clears them all. */
+export function setPairPaid(
+  paidShares: IPaidShare[],
+  pair: DebtPair,
+  paid: boolean
+): IPaidShare[] {
+  const pairShareKeys = new Set(
+    pair.items.map((item) => shareKey(item.expenseKey, pair.from.id, pair.to.id))
+  );
+  const others = paidShares.filter(
+    (record) => !pairShareKeys.has(shareKey(record.expenseKey, record.from, record.to))
+  );
+
+  if (!paid) return others;
+
+  return [
+    ...others,
+    ...pair.items.map((item) => ({
+      expenseKey: item.expenseKey,
+      from: pair.from.id,
+      to: pair.to.id,
+      paidAt: new Date(),
+    })),
+  ];
+}
+
+export function buildDebtPairs(group: GroupLike): DebtPair[] {
+  const paidShares = readPaidShares(group);
+
+  return buildRawPairs(group).map((pair) => {
+    const items: ShareLine[] = pair.items
+      .map((item) => ({
+        ...item,
+        isPaid: isSharePaid(paidShares, item.expenseKey, pair.from.id, pair.to.id),
+      }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const total = items.reduce((sum, item) => sum + item.amount, 0);
+    const paidAmount = items
+      .filter((item) => item.isPaid)
+      .reduce((sum, item) => sum + item.amount, 0);
+    const paidCount = items.filter((item) => item.isPaid).length;
+
     return {
-      ...pair,
+      from: pair.from,
+      to: pair.to,
+      items,
+      total,
       paidAmount,
-      outstanding: Math.max(pair.total - paidAmount, 0),
-      isSettled: paidAmount >= pair.total - MONEY_EPSILON,
-      isPartiallyPaid: paidAmount > MONEY_EPSILON && paidAmount < pair.total - MONEY_EPSILON,
-      items: [...pair.items].sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-      ),
+      outstanding: Math.max(total - paidAmount, 0),
+      paidCount,
+      isSettled: items.length > 0 && paidCount === items.length,
+      isPartiallyPaid: paidCount > 0 && paidCount < items.length,
     };
   });
 }
@@ -206,27 +288,28 @@ export interface MemberDebtSummary {
   total: number;
   paidTotal: number;
   outstandingTotal: number;
+  paidCount: number;
   settledPairCount: number;
 }
 
 function summarize(member: IMember, pairs: DebtPair[]): MemberDebtSummary {
   const sorted = [...pairs].sort((a, b) => b.outstanding - a.outstanding || b.total - a.total);
+  const items = sorted.flatMap((pair) => pair.items);
 
   return {
     member,
     pairs: sorted,
-    items: sorted.flatMap((pair) => pair.items),
+    items,
     total: sorted.reduce((sum, pair) => sum + pair.total, 0),
     paidTotal: sorted.reduce((sum, pair) => sum + pair.paidAmount, 0),
     outstandingTotal: sorted.reduce((sum, pair) => sum + pair.outstanding, 0),
+    paidCount: items.filter((item) => item.isPaid).length,
     settledPairCount: sorted.filter((pair) => pair.isSettled).length,
   };
 }
 
 /** Per member: what they have to pay out, grouped by payee. */
-export function buildPayableSummaries(
-  group: Pick<IGroup, 'members' | 'expenses' | 'paidSettlements' | 'paidSettlementKeys'>
-): MemberDebtSummary[] {
+export function buildPayableSummaries(group: GroupLike): MemberDebtSummary[] {
   const pairs = buildDebtPairs(group);
 
   return group.members.map((member) =>
@@ -238,9 +321,7 @@ export function buildPayableSummaries(
 }
 
 /** Per member: what they are owed, grouped by debtor. */
-export function buildReceivableSummaries(
-  group: Pick<IGroup, 'members' | 'expenses' | 'paidSettlements' | 'paidSettlementKeys'>
-): MemberDebtSummary[] {
+export function buildReceivableSummaries(group: GroupLike): MemberDebtSummary[] {
   const pairs = buildDebtPairs(group);
 
   return group.members
@@ -270,9 +351,7 @@ export interface MemberBalance {
  * Per-member position, net of transfers that already happened. Shared by the
  * home summary and the stats page so the two can never disagree.
  */
-export function buildMemberBalances(
-  group: Pick<IGroup, 'members' | 'expenses' | 'paidSettlements' | 'paidSettlementKeys'>
-): MemberBalance[] {
+export function buildMemberBalances(group: GroupLike): MemberBalance[] {
   const pairs = buildDebtPairs(group);
 
   return group.members.map((member) => {
@@ -306,21 +385,23 @@ export function buildMemberBalances(
 }
 
 /**
- * Drops paid records for pairs that no longer owe anything and clamps the rest
- * to the current debt, so a deleted expense cannot leave a mark behind that
- * would resurface on a brand new debt between the same two people.
+ * Drops paid marks whose share no longer exists, so deleting an expense cannot
+ * leave a mark behind that would resurface on a new one.
  */
-export function prunePaidSettlements(
-  group: Pick<IGroup, 'members' | 'expenses' | 'paidSettlements' | 'paidSettlementKeys'>
-): IPaidSettlement[] {
-  const totals = new Map(
-    buildDebtPairs(group).map((pair) => [pairKey(pair.from.id, pair.to.id), pair.total])
+export function prunePaidShares(group: GroupLike): IPaidShare[] {
+  const live = new Set(
+    buildRawPairs(group).flatMap((pair) =>
+      pair.items.map((item) => shareKey(item.expenseKey, pair.from.id, pair.to.id))
+    )
   );
 
-  return readPaidSettlements(group).flatMap((record) => {
-    const total = totals.get(pairKey(record.from, record.to)) ?? 0;
-    if (total <= MONEY_EPSILON) return [];
+  const seen = new Set<string>();
 
-    return [{ ...record, amount: Math.min(record.amount, total) }];
+  return readPaidShares(group).filter((record) => {
+    const key = shareKey(record.expenseKey, record.from, record.to);
+    if (!live.has(key) || seen.has(key)) return false;
+
+    seen.add(key);
+    return true;
   });
 }

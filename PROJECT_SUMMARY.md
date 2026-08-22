@@ -20,7 +20,7 @@
 ### 3. คำนวณอัตโนมัติ
 - สรุปว่าใครต้องโอนให้ใครเท่าไหร่ แยกตามคนและตามรายการ
 - คิดหนี้แบบรายคู่ (gross) ไม่หักลบหนี้สองทาง เพื่อให้ตามกลับไปที่รายการต้นทางได้
-- ติ๊กว่าจ่ายแล้วได้ โดยเก็บเป็นจำนวนเงินที่โอนจริง
+- ติ๊กว่าจ่ายแล้วเป็นรายรายการ (ไม่ใช่รายคน) รายการที่เพิ่มทีหลังไม่กระทบของที่ติ๊กไว้
 
 ### 4. สถิติและสรุป
 - ยอดรวมทั้งหมดของกลุ่ม
@@ -85,8 +85,11 @@ Runtime:
   expenses: [
     { description, amount, paidBy, splitWith[], date }
   ]
-  paidSettlements: [
-    { from, to, amount, paidAt }   // ยอดที่โอนจริงต่อคู่
+  expenses: [
+    { key, description, amount, paidBy, splitWith[], date }
+  ]
+  paidShares: [
+    { expenseKey, from, to, paidAt }  // จ่ายคืนรายรายการ
   ]
   createdAt: Date
   updatedAt: Date                  // ใช้เป็น optimistic-concurrency token
@@ -97,7 +100,7 @@ Runtime:
 
 ```
 GET    /api/group          # ดึงข้อมูลกลุ่ม (สร้างกลุ่มเปล่าให้ถ้ายังไม่มี)
-PATCH  /api/group          # อัปเดต members / expenses / paidSettlements
+PATCH  /api/group          # อัปเดต members / expenses / paidShares
 ```
 
 `PATCH` ตรวจ body ด้วย zod แบบ strict และรับ `expectedUpdatedAt`:
@@ -170,12 +173,14 @@ trip-payment/
 
 2. **ไม่หักลบสองทาง** - A ค้าง B และ B ค้าง A จะแสดงแยกกัน (ตั้งใจ เพื่อให้ตามรายการต้นทางได้)
 
-3. **Paid amounts** - `paidSettlements` เก็บยอดที่โอนจริงต่อคู่
+3. **Paid shares** - `paidShares` ติ๊กเป็นรายรายการ ผูกกับ `expenseKey`
    ```
-   outstanding = max(total - paidAmount, 0)
-   settled     = paidAmount >= total
+   outstanding = ผลรวมของรายการที่ยังไม่ติ๊ก
+   settled     = ติ๊กครบทุกรายการของคู่นั้น
    ```
-   รายการใหม่ที่เพิ่มมาทีหลังจึงกลายเป็นยอดค้างส่วนต่าง ไม่ใช่ลบเครื่องหมายที่ติ๊กไว้ทิ้ง
+   รายการที่เพิ่มมาทีหลังจึงเป็นยอดค้างใหม่ ไม่แตะของที่ติ๊กไว้แล้ว
+   ข้อมูลเก่า (`paidSettlements` แบบยอดรวมต่อคู่ และ `paidSettlementKeys`) ถูก migrate ตอนอ่าน
+   โดยไล่ติ๊กรายการของคู่นั้นจากเก่าไปใหม่ตามยอดที่มี
 
 > `src/lib/calculations.ts` ยังมีอัลกอริทึม netting แบบ greedy (ลดจำนวนรอบโอน) ใช้ผ่าน `SettlementSummary`
 > แต่หน้าจอหลักไม่ได้เรียกใช้

@@ -70,6 +70,34 @@ describe('groupPatchSchema', () => {
     expect(result.data?.expectedUpdatedAt).toBeInstanceOf(Date);
   });
 
+  test('accepts paid shares', () => {
+    expect(
+      groupPatchSchema.safeParse({
+        paidShares: [{ expenseKey: 'e1', from: 'a', to: 'b' }],
+      }).success
+    ).toBe(true);
+  });
+
+  test('rejects a paid share missing its expense', () => {
+    expect(groupPatchSchema.safeParse({ paidShares: [{ from: 'a', to: 'b' }] }).success).toBe(
+      false
+    );
+  });
+
+  test('no longer accepts the superseded per-pair amounts', () => {
+    expect(
+      groupPatchSchema.safeParse({
+        paidSettlements: [{ from: 'a', to: 'b', amount: 500 }],
+      }).success
+    ).toBe(false);
+  });
+
+  test('accepts an expense key', () => {
+    expect(groupPatchSchema.safeParse({ expenses: [{ ...expense(), key: 'e1' }] }).success).toBe(
+      true
+    );
+  });
+
   test('accepts a negative amount as a refund', () => {
     expect(groupPatchSchema.safeParse({ expenses: [expense({ amount: -200 })] }).success)
       .toBe(true);

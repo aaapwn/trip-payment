@@ -19,9 +19,11 @@ import { MemberTabs } from '@/components/MemberTabs';
 import { fetchGroup as fetchGroupRequest, saveGroup } from '@/lib/api';
 import {
   buildPayableSummaries,
+  DebtPair,
   pairKey,
-  readPaidSettlements,
-  togglePaidSettlement,
+  readPaidShares,
+  setPairPaid,
+  togglePaidShare,
 } from '@/lib/settlements';
 
 export default function SettlementsPage() {
@@ -31,7 +33,7 @@ export default function SettlementsPage() {
   const [group, setGroup] = useState<IGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
-  const [savingPairKey, setSavingPairKey] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchGroup = useCallback(async () => {
@@ -62,21 +64,13 @@ export default function SettlementsPage() {
     memberSummaries[0];
   const totalItems = memberSummaries.reduce((sum, item) => sum + item.items.length, 0);
 
-  const togglePayment = async (fromMemberId: string, toMemberId: string, total: number) => {
-    if (!group || savingPairKey) return;
+  const savePaidShares = async (key: string, nextPaidShares: ReturnType<typeof readPaidShares>) => {
+    if (!group || savingKey) return;
 
-    const key = pairKey(fromMemberId, toMemberId);
-    const nextPaidSettlements = togglePaidSettlement(
-      readPaidSettlements(group),
-      fromMemberId,
-      toMemberId,
-      total
-    );
-
-    setSavingPairKey(key);
+    setSavingKey(key);
     setErrorMessage(null);
 
-    const result = await saveGroup({ paidSettlements: nextPaidSettlements }, group.updatedAt);
+    const result = await saveGroup({ paidShares: nextPaidShares }, group.updatedAt);
 
     if (result.ok) {
       setGroup(result.group);
@@ -92,7 +86,27 @@ export default function SettlementsPage() {
       }
     }
 
-    setSavingPairKey(null);
+    setSavingKey(null);
+  };
+
+  /** One expense at a time: paying for today's items is not disturbed by
+      whatever gets added tomorrow. */
+  const toggleShare = (pair: DebtPair, expenseKey: string) => {
+    if (!group) return;
+
+    savePaidShares(
+      `${pair.to.id}|${expenseKey}`,
+      togglePaidShare(readPaidShares(group), expenseKey, pair.from.id, pair.to.id)
+    );
+  };
+
+  const toggleWholePair = (pair: DebtPair) => {
+    if (!group) return;
+
+    savePaidShares(
+      pairKey(pair.from.id, pair.to.id),
+      setPairPaid(readPaidShares(group), pair, !pair.isSettled)
+    );
   };
 
   if (loading || !group) {
@@ -188,7 +202,7 @@ export default function SettlementsPage() {
             ) : (
               selectedSummary.pairs.map((pair) => {
                 const key = pairKey(pair.from.id, pair.to.id);
-                const isSaving = savingPairKey === key;
+                const isSavingPair = savingKey === key;
 
                 return (
                   <Card key={pair.to.id} className="gap-0 overflow-hidden p-0">
@@ -202,8 +216,8 @@ export default function SettlementsPage() {
                             </span>
                             <MemberChip member={pair.to} />
                           </div>
-                          <p className="mt-1.5 text-xs text-muted-foreground">
-                            จาก {pair.items.length} รายการที่ร่วมหาร
+                          <p className="mt-1.5 text-xs text-muted-foreground tabular">
+                            ติ๊กแล้ว {pair.paidCount}/{pair.items.length} รายการ
                           </p>
                         </div>
 
@@ -231,53 +245,65 @@ export default function SettlementsPage() {
                       <PaymentMeter paid={pair.paidAmount} total={pair.total} className="mt-3" />
                     </div>
 
-                    <label
-                      className={`flex min-h-11 cursor-pointer items-center gap-2.5 border-t border-border/60 px-4 text-sm transition-colors ${
-                        pair.isSettled
-                          ? 'bg-positive-soft/50 text-positive'
-                          : 'text-muted-foreground hover:bg-muted/50'
-                      } ${isSaving ? 'opacity-60' : ''}`}
-                    >
-                      <Checkbox
-                        checked={pair.isSettled}
-                        disabled={isSaving}
-                        onCheckedChange={() =>
-                          togglePayment(pair.from.id, pair.to.id, pair.total)
-                        }
-                      />
-                      <span className="min-w-0 truncate">
-                        {pair.isSettled ? (
-                          <span className="inline-flex items-center gap-1.5 font-medium">
-                            <CheckCircle2 className="size-3.5" />
-                            จ่ายให้ {pair.to.name} แล้ว
-                          </span>
-                        ) : (
-                          <>จ่ายให้ {pair.to.name} แล้ว</>
-                        )}
-                      </span>
-                    </label>
+                    <div className="flex items-center justify-between gap-3 border-t border-border/60 px-4 py-2">
+                      <span className="text-xs text-muted-foreground">ติ๊กรายการที่จ่ายแล้ว</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleWholePair(pair)}
+                        disabled={isSavingPair || Boolean(savingKey)}
+                        className="h-7 px-2 text-xs"
+                      >
+                        {pair.isSettled ? 'ยกเลิกทั้งหมด' : 'ติ๊กทั้งหมด'}
+                      </Button>
+                    </div>
 
                     <div className="divide-y divide-border/50 border-t border-border/60 bg-muted/25">
-                      {pair.items.map((item) => (
-                        <div
-                          key={item.expenseIndex}
-                          className="grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-2"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm text-foreground">
-                              {item.description}
+                      {pair.items.map((item) => {
+                        const shareSaving = savingKey === `${pair.to.id}|${item.expenseKey}`;
+
+                        return (
+                          <label
+                            key={item.expenseKey}
+                            className={`grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-2.5 transition-colors ${
+                              item.isPaid ? 'bg-positive-soft/40' : 'hover:bg-muted/50'
+                            } ${shareSaving ? 'opacity-60' : ''}`}
+                          >
+                            <Checkbox
+                              checked={item.isPaid}
+                              disabled={Boolean(savingKey)}
+                              onCheckedChange={() => toggleShare(pair, item.expenseKey)}
+                              aria-label={`จ่ายค่า ${item.description} ให้ ${pair.to.name} แล้ว`}
+                            />
+                            <div className="min-w-0">
+                              <div
+                                className={`truncate text-sm ${
+                                  item.isPaid
+                                    ? 'text-muted-foreground line-through'
+                                    : 'text-foreground'
+                                }`}
+                              >
+                                {item.description}
+                              </div>
+                              <div className="mt-0.5 text-xs text-muted-foreground tabular">
+                                {format(new Date(item.date), 'd MMM yy', { locale: th })} · ยอดรวม ฿
+                                {Math.abs(item.totalAmount).toLocaleString('th-TH', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </div>
                             </div>
-                            <div className="mt-0.5 text-xs text-muted-foreground tabular">
-                              {format(new Date(item.date), 'd MMM yy', { locale: th })} · ยอดรวม ฿
-                              {Math.abs(item.totalAmount).toLocaleString('th-TH', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {item.isPaid && <CheckCircle2 className="size-3.5 text-positive" />}
+                              <Money
+                                value={item.amount}
+                                size="sm"
+                                tone={item.isPaid ? 'muted' : 'default'}
+                              />
                             </div>
-                          </div>
-                          <Money value={item.amount} size="sm" />
-                        </div>
-                      ))}
+                          </label>
+                        );
+                      })}
                     </div>
                   </Card>
                 );

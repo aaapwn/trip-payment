@@ -1,9 +1,9 @@
-import { IExpense, IGroup, IMember, IPaidSettlement } from '@/models/Group';
+import { IExpense, IGroup, IMember, IPaidShare } from '@/models/Group';
 
 export interface GroupUpdates {
   members?: IMember[];
   expenses?: IExpense[];
-  paidSettlements?: IPaidSettlement[];
+  paidShares?: IPaidShare[];
 }
 
 export type SaveGroupResult =

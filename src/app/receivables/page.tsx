@@ -155,6 +155,9 @@ export default function ReceivablesPage() {
                           {selectedSummary.member.name}
                         </span>
                       </div>
+                      <p className="mt-1.5 text-xs text-muted-foreground tabular">
+                        โอนแล้ว {pair.paidCount}/{pair.items.length} รายการ
+                      </p>
                       <div className="mt-2">
                         {pair.isSettled ? (
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-positive-soft px-2 py-0.5 text-xs font-medium text-positive">
@@ -197,11 +200,19 @@ export default function ReceivablesPage() {
                 <div className="divide-y divide-border/50 border-t border-border/60 bg-muted/25">
                   {pair.items.map((item) => (
                     <div
-                      key={item.expenseIndex}
-                      className="grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-2"
+                      key={item.expenseKey}
+                      className={`grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-2 ${
+                        item.isPaid ? 'bg-positive-soft/40' : ''
+                      }`}
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-sm text-foreground">{item.description}</div>
+                        <div
+                          className={`truncate text-sm ${
+                            item.isPaid ? 'text-muted-foreground line-through' : 'text-foreground'
+                          }`}
+                        >
+                          {item.description}
+                        </div>
                         <div className="mt-0.5 text-xs text-muted-foreground tabular">
                           {format(new Date(item.date), 'd MMM yy', { locale: th })} · ยอดรวม ฿
                           {Math.abs(item.totalAmount).toLocaleString('th-TH', {
@@ -210,7 +221,14 @@ export default function ReceivablesPage() {
                           })}
                         </div>
                       </div>
-                      <Money value={item.amount} size="sm" />
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {item.isPaid && <CheckCircle2 className="size-3.5 text-positive" />}
+                        <Money
+                          value={item.amount}
+                          size="sm"
+                          tone={item.isPaid ? 'muted' : 'default'}
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>

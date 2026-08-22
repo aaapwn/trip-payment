@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
 import { connectDB, isDatabaseConfigured } from '@/lib/mongodb';
-import { Group, IExpense, IMember, IPaidSettlement } from '@/models/Group';
-import { prunePaidSettlements, readPaidSettlements } from '@/lib/settlements';
+import { Group, IExpense, IMember, IPaidShare } from '@/models/Group';
+import { expenseKeyOf, prunePaidShares, readPaidShares } from '@/lib/settlements';
 import { findIntegrityErrors, groupPatchSchema } from '@/lib/validation';
 
 interface GroupData {
   _id: string;
   members: IMember[];
   expenses: IExpense[];
-  paidSettlements: IPaidSettlement[];
-  paidSettlementKeys?: string[];
+  paidShares: IPaidShare[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,6 +28,7 @@ const mockGroup: GroupData = {
   expenses: [
     {
       _id: 'exp-1',
+      key: 'exp-1',
       description: 'ค่าที่พัก',
       amount: 3000,
       paidBy: '1',
@@ -37,6 +37,7 @@ const mockGroup: GroupData = {
     },
     {
       _id: 'exp-2',
+      key: 'exp-2',
       description: 'ค่าอาหาร',
       amount: 900,
       paidBy: '2',
@@ -44,7 +45,7 @@ const mockGroup: GroupData = {
       date: new Date('2026-04-28'),
     },
   ],
-  paidSettlements: [],
+  paidShares: [],
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -59,6 +60,13 @@ const conflictResponse = (group: unknown) =>
     { status: 409 }
   );
 
+/** Paid marks point at expenses by key, so every expense needs one on save. */
+const withKeys = (expenses: IExpense[]): IExpense[] =>
+  expenses.map((expense, index) => ({
+    ...expense,
+    key: expense.key ?? expenseKeyOf(expense, index),
+  }));
+
 export async function GET() {
   if (!isDatabaseConfigured()) {
     console.warn('⚠️  Using mock data - MongoDB not configured');
@@ -69,7 +77,7 @@ export async function GET() {
     await connectDB();
     const group =
       (await Group.findOne()) ??
-      (await Group.create({ members: [], expenses: [], paidSettlements: [] }));
+      (await Group.create({ members: [], expenses: [], paidShares: [] }));
 
     return NextResponse.json(group);
   } catch (error) {
@@ -105,32 +113,62 @@ export async function PATCH(request: Request) {
 
   const { expectedUpdatedAt, ...updates } = parsed.data;
 
+  type Resolved =
+    | { ok: false; integrityErrors: string[] }
+    | { ok: true; members: IMember[]; expenses: IExpense[]; paidShares: IPaidShare[] };
+
+  /** Merges the update over the current group and validates the result. */
+  const resolve = (current: {
+    members: IMember[];
+    expenses: IExpense[];
+    paidShares?: IPaidShare[];
+    paidSettlements?: unknown;
+    paidSettlementKeys?: unknown;
+  }): Resolved => {
+    const members = updates.members ?? current.members;
+    const expenses = withKeys((updates.expenses ?? current.expenses) as IExpense[]);
+    const integrityErrors = findIntegrityErrors(members, expenses);
+
+    if (integrityErrors.length > 0) {
+      return { ok: false, integrityErrors };
+    }
+
+    const incoming = updates.paidShares
+      ? updates.paidShares.map((record) => ({
+          ...record,
+          paidAt: record.paidAt ?? new Date(),
+        }))
+      : readPaidShares(current as Parameters<typeof readPaidShares>[0]);
+
+    return {
+      ok: true,
+      members,
+      expenses,
+      paidShares: prunePaidShares({ members, expenses, paidShares: incoming }),
+    };
+  };
+
   if (!isDatabaseConfigured()) {
     if (expectedUpdatedAt && expectedUpdatedAt.getTime() !== mockGroup.updatedAt.getTime()) {
       return conflictResponse(mockGroup);
     }
 
-    const members = updates.members ?? mockGroup.members;
-    const expenses = (updates.expenses ?? mockGroup.expenses) as IExpense[];
-    const integrityErrors = findIntegrityErrors(members, expenses);
+    const resolved = resolve(mockGroup);
 
-    if (integrityErrors.length > 0) {
+    if (!resolved.ok) {
       return NextResponse.json(
-        { error: integrityErrors[0], code: 'integrity', issues: integrityErrors },
+        {
+          error: resolved.integrityErrors[0],
+          code: 'integrity',
+          issues: resolved.integrityErrors,
+        },
         { status: 400 }
       );
     }
 
-    mockGroup.members = members;
-    mockGroup.expenses = expenses;
-    mockGroup.paidSettlements = prunePaidSettlements({
-      members,
-      expenses,
-      paidSettlements: (updates.paidSettlements ?? mockGroup.paidSettlements).map((record) => ({
-        ...record,
-        paidAt: record.paidAt ?? new Date(),
-      })),
-    });
+    mockGroup.members = resolved.members;
+    mockGroup.expenses = resolved.expenses;
+    mockGroup.paidShares = resolved.paidShares;
     mockGroup.updatedAt = new Date();
 
     return NextResponse.json(mockGroup);
@@ -140,38 +178,37 @@ export async function PATCH(request: Request) {
     await connectDB();
     const current =
       (await Group.findOne()) ??
-      (await Group.create({ members: [], expenses: [], paidSettlements: [] }));
+      (await Group.create({ members: [], expenses: [], paidShares: [] }));
 
     if (expectedUpdatedAt && expectedUpdatedAt.getTime() !== current.updatedAt.getTime()) {
       return conflictResponse(current);
     }
 
-    const members = updates.members ?? current.members;
-    const expenses = (updates.expenses ?? current.expenses) as IExpense[];
-    const integrityErrors = findIntegrityErrors(members, expenses);
+    const resolved = resolve(current);
 
-    if (integrityErrors.length > 0) {
+    if (!resolved.ok) {
       return NextResponse.json(
-        { error: integrityErrors[0], code: 'integrity', issues: integrityErrors },
+        {
+          error: resolved.integrityErrors[0],
+          code: 'integrity',
+          issues: resolved.integrityErrors,
+        },
         { status: 400 }
       );
     }
-
-    const paidSettlements = prunePaidSettlements({
-      members,
-      expenses,
-      paidSettlements: (
-        updates.paidSettlements ?? readPaidSettlements(current)
-      ).map((record) => ({ ...record, paidAt: record.paidAt ?? new Date() })),
-    });
 
     // Compare-and-set on updatedAt: a concurrent write between the read above
     // and this update loses instead of silently overwriting the other change.
     const updated = await Group.findOneAndUpdate(
       { _id: current._id, updatedAt: current.updatedAt },
       {
-        $set: { members, expenses, paidSettlements },
-        $unset: { paidSettlementKeys: '' },
+        $set: {
+          members: resolved.members,
+          expenses: resolved.expenses,
+          paidShares: resolved.paidShares,
+        },
+        // Both are migrated into paidShares above; drop them once written.
+        $unset: { paidSettlements: '', paidSettlementKeys: '' },
       },
       { new: true, runValidators: true }
     );
