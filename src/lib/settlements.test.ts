@@ -3,19 +3,20 @@ import {
   buildDebtPairs,
   buildPayableSummaries,
   buildReceivableSummaries,
-  prunePaidSettlements,
-  readPaidSettlements,
-  togglePaidSettlement,
+  prunePaidShares,
+  readPaidShares,
+  setPairPaid,
+  togglePaidShare,
 } from './settlements';
 import { calculateBalances, calculateSettlements } from './calculations';
-import { IExpense, IMember, IPaidSettlement } from '@/models/Group';
+import { IExpense, IMember, IPaidShare } from '@/models/Group';
 
 const members: IMember[] = [
   { id: 'a', name: 'กอล์ฟ', color: '#5B7FE8' },
   { id: 'b', name: 'มิ้นต์', color: '#6BCF9E' },
 ];
 
-const expense = (overrides: Partial<IExpense>): IExpense => ({
+const expense = (overrides: Partial<IExpense> & { key: string }): IExpense => ({
   description: 'ค่าอาหาร',
   amount: 1000,
   paidBy: 'a',
@@ -26,16 +27,16 @@ const expense = (overrides: Partial<IExpense>): IExpense => ({
 
 const group = (
   expenses: IExpense[],
-  paidSettlements: IPaidSettlement[] = [],
+  paidShares: IPaidShare[] = [],
   groupMembers: IMember[] = members
-) => ({ members: groupMembers, expenses, paidSettlements });
+) => ({ members: groupMembers, expenses, paidShares });
 
 const findPair = (pairs: ReturnType<typeof buildDebtPairs>, from: string, to: string) =>
   pairs.find((pair) => pair.from.id === from && pair.to.id === to);
 
 describe('buildDebtPairs', () => {
   test('splits an expense among everyone except the payer', () => {
-    const pairs = buildDebtPairs(group([expense({ amount: 900, splitWith: ['a', 'b'] })]));
+    const pairs = buildDebtPairs(group([expense({ key: 'e1', amount: 900 })]));
 
     expect(pairs).toHaveLength(1);
     expect(findPair(pairs, 'b', 'a')?.total).toBe(450);
@@ -44,8 +45,8 @@ describe('buildDebtPairs', () => {
   test('keeps opposite debts separate instead of netting them off', () => {
     const pairs = buildDebtPairs(
       group([
-        expense({ amount: 1000, paidBy: 'a' }),
-        expense({ amount: 600, paidBy: 'b' }),
+        expense({ key: 'e1', amount: 1000, paidBy: 'a' }),
+        expense({ key: 'e2', amount: 600, paidBy: 'b' }),
       ])
     );
 
@@ -55,7 +56,7 @@ describe('buildDebtPairs', () => {
 
   test('a refund is owed by whoever collected it', () => {
     const pairs = buildDebtPairs(
-      group([expense({ description: 'เงินคืนที่พัก', amount: -200, paidBy: 'a' })])
+      group([expense({ key: 'e1', description: 'เงินคืน', amount: -200, paidBy: 'a' })])
     );
 
     expect(findPair(pairs, 'a', 'b')?.total).toBe(100);
@@ -64,7 +65,7 @@ describe('buildDebtPairs', () => {
 
   test('an expense whose member was removed is still counted, under a placeholder', () => {
     const pairs = buildDebtPairs(
-      group([expense({ amount: 900, paidBy: 'gone', splitWith: ['gone', 'a', 'b'] })])
+      group([expense({ key: 'e1', amount: 900, paidBy: 'gone', splitWith: ['gone', 'a', 'b'] })])
     );
 
     expect(pairs).toHaveLength(2);
@@ -73,77 +74,167 @@ describe('buildDebtPairs', () => {
   });
 
   test('ignores an expense with nobody to split with instead of dividing by zero', () => {
-    expect(buildDebtPairs(group([expense({ splitWith: [] })]))).toHaveLength(0);
+    expect(buildDebtPairs(group([expense({ key: 'e1', splitWith: [] })]))).toHaveLength(0);
+  });
+
+  test('identifies shares by key, not by array position', () => {
+    const paid = togglePaidShare([], 'e2', 'b', 'a');
+    const before = findPair(
+      buildDebtPairs(
+        group([expense({ key: 'e1', amount: 600 }), expense({ key: 'e2', amount: 400 })], paid)
+      ),
+      'b',
+      'a'
+    );
+    // Drop the first expense: the mark must stay on e2, not slide to another row.
+    const after = findPair(
+      buildDebtPairs(group([expense({ key: 'e2', amount: 400 })], paid)),
+      'b',
+      'a'
+    );
+
+    expect(before?.items.find((item) => item.expenseKey === 'e2')?.isPaid).toBe(true);
+    expect(after?.items.find((item) => item.expenseKey === 'e2')?.isPaid).toBe(true);
+    expect(after?.outstanding).toBe(0);
   });
 });
 
-describe('paid settlements', () => {
-  test('marking as paid records the transferred amount', () => {
-    const paid = togglePaidSettlement([], 'b', 'a', 500);
-
-    expect(paid).toHaveLength(1);
-    expect(paid[0]).toMatchObject({ from: 'b', to: 'a', amount: 500 });
-  });
-
-  test('toggling a settled debt again clears it', () => {
-    const paid = togglePaidSettlement(
-      [{ from: 'b', to: 'a', amount: 500, paidAt: new Date() }],
+describe('paid shares', () => {
+  test('marking one share paid leaves the rest outstanding', () => {
+    const paid = togglePaidShare([], 'e1', 'b', 'a');
+    const pair = findPair(
+      buildDebtPairs(
+        group([expense({ key: 'e1', amount: 1000 }), expense({ key: 'e2', amount: 300 })], paid)
+      ),
       'b',
-      'a',
-      500
+      'a'
     );
-
-    expect(paid).toHaveLength(0);
-  });
-
-  test('a later expense leaves the payment in place and only raises the outstanding amount', () => {
-    const paid = togglePaidSettlement([], 'b', 'a', 500);
-    const pairs = buildDebtPairs(
-      group([expense({ amount: 1000 }), expense({ amount: 300 })], paid)
-    );
-    const pair = findPair(pairs, 'b', 'a');
 
     expect(pair?.total).toBe(650);
     expect(pair?.paidAmount).toBe(500);
     expect(pair?.outstanding).toBe(150);
+    expect(pair?.paidCount).toBe(1);
     expect(pair?.isSettled).toBe(false);
     expect(pair?.isPartiallyPaid).toBe(true);
   });
 
-  test('migrates legacy `from->to:cents` keys', () => {
-    const records = readPaidSettlements({ paidSettlementKeys: ['b->a:50000'] });
+  test('an expense added afterwards does not disturb what was already ticked', () => {
+    const paid = togglePaidShare([], 'e1', 'b', 'a');
+    const later = group(
+      [
+        expense({ key: 'e1', amount: 1000 }),
+        expense({ key: 'e2', amount: 300, date: new Date('2026-05-01') }),
+      ],
+      paid
+    );
+    const pair = findPair(buildDebtPairs(later), 'b', 'a');
 
-    expect(records).toEqual([
-      { from: 'b', to: 'a', amount: 500, paidAt: new Date(0) },
+    expect(pair?.items.find((item) => item.expenseKey === 'e1')?.isPaid).toBe(true);
+    expect(pair?.items.find((item) => item.expenseKey === 'e2')?.isPaid).toBe(false);
+  });
+
+  test('toggling the same share again clears it', () => {
+    const paid = togglePaidShare(togglePaidShare([], 'e1', 'b', 'a'), 'e1', 'b', 'a');
+
+    expect(paid).toHaveLength(0);
+  });
+
+  test('a pair is settled only once every share is ticked', () => {
+    const data = group([expense({ key: 'e1', amount: 1000 }), expense({ key: 'e2', amount: 300 })]);
+    const pair = findPair(buildDebtPairs(data), 'b', 'a')!;
+    const allPaid = setPairPaid([], pair, true);
+    const settled = findPair(buildDebtPairs({ ...data, paidShares: allPaid }), 'b', 'a');
+
+    expect(allPaid).toHaveLength(2);
+    expect(settled?.isSettled).toBe(true);
+    expect(settled?.outstanding).toBe(0);
+
+    const cleared = setPairPaid(allPaid, pair, false);
+    expect(cleared).toHaveLength(0);
+  });
+
+  test('clearing one pair leaves another pair alone', () => {
+    const data = group([
+      expense({ key: 'e1', amount: 1000, paidBy: 'a' }),
+      expense({ key: 'e2', amount: 600, paidBy: 'b' }),
     ]);
+    const pairs = buildDebtPairs(data);
+    const bOwesA = findPair(pairs, 'b', 'a')!;
+    const aOwesB = findPair(pairs, 'a', 'b')!;
+
+    const both = setPairPaid(setPairPaid([], bOwesA, true), aOwesB, true);
+    expect(both).toHaveLength(2);
+
+    const onlyAOwesB = setPairPaid(both, bOwesA, false);
+    expect(onlyAOwesB).toHaveLength(1);
+    expect(onlyAOwesB[0]).toMatchObject({ expenseKey: 'e2', from: 'a', to: 'b' });
   });
 
-  test('a stored record never overrides the migrated legacy key for the same pair', () => {
-    const records = readPaidSettlements({
-      paidSettlements: [{ from: 'b', to: 'a', amount: 120, paidAt: new Date(0) }],
-      paidSettlementKeys: ['b->a:50000'],
-    });
-
-    expect(records).toHaveLength(1);
-    expect(records[0].amount).toBe(120);
-  });
-
-  test('pruning drops records for debts that no longer exist and clamps the rest', () => {
-    const pruned = prunePaidSettlements(
-      group([expense({ amount: 200 })], [
-        { from: 'b', to: 'a', amount: 500, paidAt: new Date(0) },
-        { from: 'a', to: 'b', amount: 40, paidAt: new Date(0) },
+  test('pruning drops marks whose share no longer exists', () => {
+    const pruned = prunePaidShares(
+      group([expense({ key: 'e1', amount: 1000 })], [
+        { expenseKey: 'e1', from: 'b', to: 'a', paidAt: new Date(0) },
+        { expenseKey: 'gone', from: 'b', to: 'a', paidAt: new Date(0) },
       ])
     );
 
     expect(pruned).toHaveLength(1);
-    expect(pruned[0]).toMatchObject({ from: 'b', to: 'a', amount: 100 });
+    expect(pruned[0].expenseKey).toBe('e1');
+  });
+});
+
+describe('migrating older paid data', () => {
+  test('spends a per-pair amount across that pair’s shares, oldest first', () => {
+    const shares = readPaidShares({
+      members,
+      expenses: [
+        expense({ key: 'e1', amount: 1000, date: new Date('2026-04-28') }),
+        expense({ key: 'e2', amount: 300, date: new Date('2026-05-01') }),
+      ],
+      paidSettlements: [{ from: 'b', to: 'a', amount: 500, paidAt: new Date(0) }],
+    });
+
+    expect(shares).toHaveLength(1);
+    expect(shares[0]).toMatchObject({ expenseKey: 'e1', from: 'b', to: 'a' });
+  });
+
+  test('migrates legacy `from->to:cents` keys the same way', () => {
+    const shares = readPaidShares({
+      members,
+      expenses: [expense({ key: 'e1', amount: 1000 })],
+      paidSettlementKeys: ['b->a:50000'],
+    });
+
+    expect(shares).toHaveLength(1);
+    expect(shares[0].expenseKey).toBe('e1');
+  });
+
+  test('an amount too small for any share migrates to nothing', () => {
+    const shares = readPaidShares({
+      members,
+      expenses: [expense({ key: 'e1', amount: 1000 })],
+      paidSettlements: [{ from: 'b', to: 'a', amount: 100, paidAt: new Date(0) }],
+    });
+
+    expect(shares).toEqual([]);
+  });
+
+  test('stored shares win over the older fields', () => {
+    const shares = readPaidShares({
+      members,
+      expenses: [expense({ key: 'e1', amount: 1000 })],
+      paidShares: [{ expenseKey: 'e1', from: 'a', to: 'b', paidAt: new Date(0) }],
+      paidSettlements: [{ from: 'b', to: 'a', amount: 500, paidAt: new Date(0) }],
+    });
+
+    expect(shares).toHaveLength(1);
+    expect(shares[0]).toMatchObject({ from: 'a', to: 'b' });
   });
 });
 
 describe('member summaries', () => {
   test('payables and receivables mirror each other', () => {
-    const data = group([expense({ amount: 900 })]);
+    const data = group([expense({ key: 'e1', amount: 900 })]);
     const payable = buildPayableSummaries(data).find((item) => item.member.id === 'b');
     const receivable = buildReceivableSummaries(data).find((item) => item.member.id === 'a');
 
@@ -151,15 +242,16 @@ describe('member summaries', () => {
     expect(receivable?.outstandingTotal).toBe(450);
   });
 
-  test('a settled debt counts as paid on both sides', () => {
-    const data = group([expense({ amount: 900 })], [
-      { from: 'b', to: 'a', amount: 450, paidAt: new Date(0) },
+  test('a ticked share counts as paid on both sides', () => {
+    const data = group([expense({ key: 'e1', amount: 900 })], [
+      { expenseKey: 'e1', from: 'b', to: 'a', paidAt: new Date(0) },
     ]);
     const payable = buildPayableSummaries(data).find((item) => item.member.id === 'b');
     const receivable = buildReceivableSummaries(data).find((item) => item.member.id === 'a');
 
     expect(payable?.outstandingTotal).toBe(0);
     expect(payable?.paidTotal).toBe(450);
+    expect(payable?.paidCount).toBe(1);
     expect(receivable?.settledPairCount).toBe(1);
   });
 });
@@ -167,7 +259,7 @@ describe('member summaries', () => {
 describe('netting helpers', () => {
   test('balances stay numeric when an expense references a removed member', () => {
     const balances = calculateBalances(
-      [expense({ amount: 900, paidBy: 'gone', splitWith: ['gone', 'a', 'b'] })],
+      [expense({ key: 'e1', amount: 900, paidBy: 'gone', splitWith: ['gone', 'a', 'b'] })],
       members
     );
 

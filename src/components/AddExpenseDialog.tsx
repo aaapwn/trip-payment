@@ -85,6 +85,8 @@ export function AddExpenseDialog({
     try {
       const expense: IExpense = {
         ...(initialExpense?._id ? { _id: initialExpense._id } : {}),
+        // Paid marks reference this, so it must survive edits and reordering.
+        key: initialExpense?.key ?? crypto.randomUUID(),
         description: description.trim(),
         amount: amountValue,
         paidBy,

@@ -8,6 +8,12 @@ export interface IMember {
 
 export interface IExpense {
   _id?: string;
+  /**
+   * Stable client-generated id. Array position cannot identify an expense —
+   * deleting an earlier one shifts every index — and paid marks point at
+   * individual expenses, so they need something that survives edits.
+   */
+  key?: string;
   description: string;
   amount: number;
   paidBy: string;
@@ -22,9 +28,20 @@ export interface ISettlement {
 }
 
 /**
- * How much of a directed debt (from -> to) has already been transferred.
- * Amount-based on purpose: adding an expense afterwards must not silently
- * discard the fact that money already changed hands.
+ * One settled share: `from` has paid `to` back for their part of one expense.
+ * Per expense rather than per person, so paying for what exists today is not
+ * disturbed by an expense added tomorrow.
+ */
+export interface IPaidShare {
+  expenseKey: string;
+  from: string;
+  to: string;
+  paidAt: Date;
+}
+
+/**
+ * @deprecated Per-pair transferred amount, superseded by `paidShares`.
+ * Still read so existing marks survive; migrated on the next write.
  */
 export interface IPaidSettlement {
   from: string;
@@ -37,6 +54,8 @@ export interface IGroup {
   _id?: string;
   members: IMember[];
   expenses: IExpense[];
+  paidShares?: IPaidShare[];
+  /** @deprecated per-pair amounts, migrated on read. */
   paidSettlements?: IPaidSettlement[];
   /** @deprecated legacy `from->to:cents` keys, migrated on read. */
   paidSettlementKeys?: string[];
@@ -54,12 +73,23 @@ const MemberSchema = new Schema<IMember>(
 );
 
 const ExpenseSchema = new Schema<IExpense>({
+  key: { type: String },
   description: { type: String, required: true },
   amount: { type: Number, required: true },
   paidBy: { type: String, required: true },
   splitWith: [{ type: String, required: true }],
   date: { type: Date, default: Date.now },
 });
+
+const PaidShareSchema = new Schema<IPaidShare>(
+  {
+    expenseKey: { type: String, required: true },
+    from: { type: String, required: true },
+    to: { type: String, required: true },
+    paidAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
 
 const PaidSettlementSchema = new Schema<IPaidSettlement>(
   {
@@ -75,6 +105,7 @@ const GroupSchema = new Schema<IGroup>(
   {
     members: [MemberSchema],
     expenses: [ExpenseSchema],
+    paidShares: [PaidShareSchema],
     paidSettlements: [PaidSettlementSchema],
     paidSettlementKeys: [{ type: String }],
   },
