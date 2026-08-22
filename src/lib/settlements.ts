@@ -42,6 +42,26 @@ export function expenseKeyOf(expense: IExpense, index: number): string {
   return `idx:${index}`;
 }
 
+/**
+ * Mongoose documents do not survive a spread: their schema paths live behind
+ * getters over an internal `_doc`, so `{ ...doc }` copies internals and drops
+ * every field. Convert before copying.
+ */
+export function toPlain<T>(value: T): T {
+  const candidate = value as T & { toObject?: () => T };
+
+  return typeof candidate?.toObject === 'function' ? candidate.toObject() : value;
+}
+
+/** Stamps a key on every expense that lacks one, ready to be saved. */
+export function withExpenseKeys(expenses: IExpense[]): IExpense[] {
+  return expenses.map((expense, index) => {
+    const plain = toPlain(expense);
+
+    return { ...plain, key: plain.key ?? expenseKeyOf(plain, index) };
+  });
+}
+
 export function pairKey(fromMemberId: string, toMemberId: string) {
   return `${fromMemberId}->${toMemberId}`;
 }

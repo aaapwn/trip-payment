@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { connectDB, isDatabaseConfigured } from '@/lib/mongodb';
 import { Group, IExpense, IMember, IPaidShare } from '@/models/Group';
-import { expenseKeyOf, prunePaidShares, readPaidShares } from '@/lib/settlements';
+import {
+  prunePaidShares,
+  readPaidShares,
+  toPlain,
+  withExpenseKeys,
+} from '@/lib/settlements';
 import { findIntegrityErrors, groupPatchSchema } from '@/lib/validation';
 
 interface GroupData {
@@ -59,13 +64,6 @@ const conflictResponse = (group: unknown) =>
     },
     { status: 409 }
   );
-
-/** Paid marks point at expenses by key, so every expense needs one on save. */
-const withKeys = (expenses: IExpense[]): IExpense[] =>
-  expenses.map((expense, index) => ({
-    ...expense,
-    key: expense.key ?? expenseKeyOf(expense, index),
-  }));
 
 export async function GET() {
   if (!isDatabaseConfigured()) {
@@ -126,7 +124,7 @@ export async function PATCH(request: Request) {
     paidSettlementKeys?: unknown;
   }): Resolved => {
     const members = updates.members ?? current.members;
-    const expenses = withKeys((updates.expenses ?? current.expenses) as IExpense[]);
+    const expenses = withExpenseKeys((updates.expenses ?? current.expenses) as IExpense[]);
     const integrityErrors = findIntegrityErrors(members, expenses);
 
     if (integrityErrors.length > 0) {
@@ -176,9 +174,11 @@ export async function PATCH(request: Request) {
 
   try {
     await connectDB();
-    const current =
+    const document =
       (await Group.findOne()) ??
       (await Group.create({ members: [], expenses: [], paidShares: [] }));
+    // Plain data from here on: mongoose documents lose their fields on spread.
+    const current = toPlain(document) as GroupData;
 
     if (expectedUpdatedAt && expectedUpdatedAt.getTime() !== current.updatedAt.getTime()) {
       return conflictResponse(current);
@@ -200,7 +200,7 @@ export async function PATCH(request: Request) {
     // Compare-and-set on updatedAt: a concurrent write between the read above
     // and this update loses instead of silently overwriting the other change.
     const updated = await Group.findOneAndUpdate(
-      { _id: current._id, updatedAt: current.updatedAt },
+      { _id: document._id, updatedAt: current.updatedAt },
       {
         $set: {
           members: resolved.members,

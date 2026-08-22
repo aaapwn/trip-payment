@@ -7,6 +7,8 @@ import {
   readPaidShares,
   setPairPaid,
   togglePaidShare,
+  toPlain,
+  withExpenseKeys,
 } from './settlements';
 import { calculateBalances, calculateSettlements } from './calculations';
 import { IExpense, IMember, IPaidShare } from '@/models/Group';
@@ -16,7 +18,8 @@ const members: IMember[] = [
   { id: 'b', name: 'มิ้นต์', color: '#6BCF9E' },
 ];
 
-const expense = (overrides: Partial<IExpense> & { key: string }): IExpense => ({
+const expense = (overrides: Partial<IExpense> = {}): IExpense => ({
+  key: 'e1',
   description: 'ค่าอาหาร',
   amount: 1000,
   paidBy: 'a',
@@ -229,6 +232,64 @@ describe('migrating older paid data', () => {
 
     expect(shares).toHaveLength(1);
     expect(shares[0]).toMatchObject({ from: 'a', to: 'b' });
+  });
+});
+
+describe('reading stored documents', () => {
+  /**
+   * Stands in for a mongoose subdocument: the schema paths live behind getters
+   * over an internal `_doc`, so a plain spread copies internals and loses every
+   * field. Anything that copies stored expenses has to convert first.
+   */
+  const fakeSubdocument = (data: IExpense) => {
+    const doc = { $__: { activePaths: {} }, _doc: data, toObject: () => ({ ...data }) };
+
+    for (const field of Object.keys(data) as (keyof IExpense)[]) {
+      Object.defineProperty(doc, field, { get: () => data[field], enumerable: false });
+    }
+
+    return doc as unknown as IExpense;
+  };
+
+  test('the stand-in really does lose its fields on a bare spread', () => {
+    const spread = { ...fakeSubdocument(expense({ key: 'e1' })) };
+
+    expect((spread as Partial<IExpense>).splitWith).toBeUndefined();
+  });
+
+  test('toPlain recovers the fields', () => {
+    const plain = toPlain(fakeSubdocument(expense({ key: 'e1' })));
+
+    expect(plain.splitWith).toEqual(['a', 'b']);
+    expect(plain.description).toBe('ค่าอาหาร');
+  });
+
+  test('withExpenseKeys keeps stored expenses intact', () => {
+    const stamped = withExpenseKeys([
+      fakeSubdocument(expense({ key: 'e1' })),
+      fakeSubdocument(expense({ key: undefined, _id: 'abc123' })),
+    ]);
+
+    expect(stamped[0]).toMatchObject({ key: 'e1', splitWith: ['a', 'b'], amount: 1000 });
+    // No key of its own yet: falls back to the stored document id.
+    expect(stamped[1].key).toBe('abc123');
+    expect(stamped[1].splitWith).toEqual(['a', 'b']);
+  });
+
+  test('withExpenseKeys leaves plain expenses alone', () => {
+    const stamped = withExpenseKeys([expense({ key: 'e1' })]);
+
+    expect(stamped[0]).toMatchObject({ key: 'e1', splitWith: ['a', 'b'] });
+  });
+
+  test('debts still build from stored expenses', () => {
+    const pairs = buildDebtPairs({
+      members,
+      expenses: withExpenseKeys([fakeSubdocument(expense({ key: 'e1', amount: 900 }))]),
+      paidShares: [],
+    });
+
+    expect(findPair(pairs, 'b', 'a')?.total).toBe(450);
   });
 });
 
