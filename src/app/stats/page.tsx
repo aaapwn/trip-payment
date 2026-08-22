@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ArrowLeft, Search, Filter, Users } from 'lucide-react';
 import Link from 'next/link';
 import { getMemberStats } from '@/lib/calculations';
+import { buildDebtPairs, formatCurrency } from '@/lib/settlements';
 
 export default function StatsPage() {
   const [group, setGroup] = useState<IGroup | null>(null);
@@ -52,6 +53,20 @@ export default function StatsPage() {
       </div>
     );
   }
+
+  // Money that has actually changed hands, so the numbers here agree with
+  // the settlement pages instead of contradicting them.
+  const debtPairs = buildDebtPairs(group);
+  const transferred = (memberId: string) => {
+    const paidOut = debtPairs
+      .filter((pair) => pair.from.id === memberId)
+      .reduce((sum, pair) => sum + pair.paidAmount, 0);
+    const received = debtPairs
+      .filter((pair) => pair.to.id === memberId)
+      .reduce((sum, pair) => sum + pair.paidAmount, 0);
+
+    return { paidOut, received };
+  };
 
   // Filter members by search and selection
   const filteredMembers = group.members.filter(member => {
@@ -187,8 +202,11 @@ export default function StatsPage() {
           <div className="grid gap-4">
             {filteredMembers.map((member) => {
               const stats = getMemberStats(group.expenses, member.id);
-              const isCreditor = stats.netBalance > 0;
-              const isDebtor = stats.netBalance < 0;
+              const { paidOut, received } = transferred(member.id);
+              const netBalance = stats.netBalance + paidOut - received;
+              const hasTransfers = paidOut > 0 || received > 0;
+              const isCreditor = netBalance > 0.005;
+              const isDebtor = netBalance < -0.005;
 
               return (
                 <Card key={member.id} className="p-4 transition-shadow hover:shadow-md sm:p-6">
@@ -210,21 +228,23 @@ export default function StatsPage() {
                         <div>
                           <span className="text-muted-foreground block mb-1">จ่ายไป</span>
                           <span className="break-words font-medium text-foreground text-lg">
-                            ฿{stats.totalPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            {formatCurrency(stats.totalPaid)}
                           </span>
                         </div>
                         
                         <div>
-                          <span className="text-muted-foreground block mb-1">ค้างจ่าย</span>
+                          <span className="text-muted-foreground block mb-1">ส่วนแบ่งที่ต้องจ่าย</span>
                           <span className="break-words font-medium text-foreground text-lg">
-                            ฿{stats.totalOwed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            {formatCurrency(stats.totalOwed)}
                           </span>
                         </div>
                       </div>
                     </div>
 
                     <div className="border-t border-border/60 pt-4 sm:border-0 sm:pt-0 sm:text-right">
-                      <span className="text-xs text-muted-foreground block mb-1">สุทธิ</span>
+                      <span className="text-xs text-muted-foreground block mb-1">
+                        {hasTransfers ? 'คงเหลือสุทธิ' : 'สุทธิ'}
+                      </span>
                       <div
                         className={`break-words text-3xl font-serif ${
                           isCreditor
@@ -235,8 +255,15 @@ export default function StatsPage() {
                         }`}
                       >
                         {isCreditor && '+'}
-                        ฿{Math.abs(stats.netBalance).toLocaleString('th-TH', { minimumFractionDigits: 0 })}
+                        {formatCurrency(Math.abs(netBalance))}
                       </div>
+                      {hasTransfers && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          หลังหักที่โอนกันแล้ว
+                          {paidOut > 0 && ` · โอนออก ${formatCurrency(paidOut)}`}
+                          {received > 0 && ` · รับเข้า ${formatCurrency(received)}`}
+                        </p>
+                      )}
                       {isCreditor && (
                         <p className="text-xs text-accent mt-1">
                           ได้รับคืน

@@ -1,8 +1,9 @@
-# 🚨 การแก้ปัญหา: trips.map is not a function
+# 🚨 การแก้ปัญหา: โหลดข้อมูลกลุ่มไม่ได้ / API 500
 
 ## สาเหตุ
 
-Error นี้เกิดเพราะ **MongoDB ยังไม่ได้เชื่อมต่อ** ทำให้ API `/api/trips` return status 500 และส่ง error object กลับมาแทนที่จะเป็น array
+โดยปกติเกิดเพราะตั้ง `MONGODB_URI` ไว้แล้วแต่ **ต่อ MongoDB ไม่ได้** ทำให้ `GET /api/group` ตอบ 500
+(ถ้าไม่ได้ตั้ง `MONGODB_URI` เลย แอปจะเข้า mock mode ให้อัตโนมัติ ไม่ error)
 
 ## วิธีแก้ไข
 
@@ -68,51 +69,24 @@ Error นี้เกิดเพราะ **MongoDB ยังไม่ได้
 
 ### Option 3: ทดสอบโดยไม่ใช้ Database (Quick Test)
 
-ถ้าต้องการดู UI ก่อนโดยไม่ต้องติดตั้ง MongoDB:
+ไม่ต้องทำอะไรเพิ่ม — ถ้าไม่ได้ตั้ง `MONGODB_URI` แอปจะใช้ mock data ในหน่วยความจำให้เอง:
 
-**สร้าง Mock API** ที่ `/api/trips/route.ts`:
-
-```typescript
-import { NextResponse } from 'next/server';
-
-// Mock data for testing
-const mockTrips = [
-  {
-    _id: '1',
-    name: 'ทริปเชียงใหม่ 2026',
-    members: [
-      { id: '1', name: 'กอล์ฟ', color: '#5B7FE8' },
-      { id: '2', name: 'มิ้นต์', color: '#6BCF9E' },
-    ],
-    expenses: [
-      {
-        description: 'ค่าที่พัก',
-        amount: 2000,
-        paidBy: '1',
-        splitWith: ['1', '2'],
-        date: new Date(),
-      },
-    ],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-];
-
-export async function GET() {
-  // Return mock data instead of database query
-  return NextResponse.json(mockTrips);
-}
-
-export async function POST(request: Request) {
-  const body = await request.json();
-  return NextResponse.json({ ...body, _id: Date.now().toString() }, { status: 201 });
-}
+```bash
+bun run dev
 ```
+
+หน้าแรกจะขึ้นแถบ **Mock Mode** สีเหลือง แก้ข้อมูลได้ปกติ (เพิ่ม/ลบรายการ, ติ๊กว่าจ่ายแล้ว)
+แต่ข้อมูลอยู่แค่ใน process ของ server:
+
+- หายเมื่อรีสตาร์ท server
+- ไม่ได้แชร์ข้ามหลาย worker/instance
+
+พอพร้อมเก็บข้อมูลจริงก็ใส่ `MONGODB_URI` ใน `.env.local` แล้วรีสตาร์ท dev server
 
 ## วิธีเช็คว่าแก้สำเร็จ
 
-1. รีเฟรชเบราว์เซอร์ที่ http://localhost:3001
-2. **ถ้าสำเร็จ**: จะเห็นหน้า "ยังไม่มีทริป" หรือรายการทริป (ถ้ามี data)
+1. รีเฟรชเบราว์เซอร์ที่ http://localhost:3000
+2. **ถ้าสำเร็จ**: จะเห็นหน้า "เริ่มต้นใช้งาน" (ยังไม่มีสมาชิก) หรือรายการค่าใช้จ่าย (ถ้ามี data)
 3. **ถ้ายัง error**: เช็ค console ใน terminal ว่ามี error อะไร
 
 ## การตรวจสอบ
@@ -124,8 +98,8 @@ export async function POST(request: Request) {
 ---
 
 **หลังจากแก้เสร็จแล้ว** คุณสามารถ:
-1. สร้างทริปใหม่ได้
+1. เพิ่มสมาชิกในกลุ่ม
 2. เพิ่มรายการค่าใช้จ่าย
-3. ดูสรุปการชำระเงิน
+3. ดูสรุปโอนเงินและติ๊กว่าจ่ายแล้ว
 
 ต้องการความช่วยเหลือเพิ่มเติม? ให้ฉันรู้!

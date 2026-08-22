@@ -11,14 +11,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Plus, X } from 'lucide-react';
-import { IMember } from '@/models/Group';
+import { AlertCircle, Lock, Plus, X } from 'lucide-react';
+import { IExpense, IMember } from '@/models/Group';
+import { isMemberReferenced } from '@/lib/settlements';
 
 interface ManageMembersDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   members: IMember[];
+  expenses: IExpense[];
   onSuccess: (members: IMember[]) => void;
+  errorMessage?: string | null;
 }
 
 const PRESET_COLORS = [
@@ -30,7 +33,9 @@ export function ManageMembersDialog({
   open,
   onOpenChange,
   members: initialMembers,
+  expenses,
   onSuccess,
+  errorMessage = null,
 }: ManageMembersDialogProps) {
   const [memberName, setMemberName] = useState('');
   const [members, setMembers] = useState<IMember[]>(initialMembers);
@@ -45,22 +50,22 @@ export function ManageMembersDialog({
     onOpenChange(nextOpen);
   };
 
-
   const addMember = () => {
-    if (!memberName.trim()) return;
-    
+    const name = memberName.trim();
+    if (!name) return;
+
     const newMember: IMember = {
-      id: Date.now().toString(),
-      name: memberName.trim(),
+      id: crypto.randomUUID(),
+      name,
       color: PRESET_COLORS[members.length % PRESET_COLORS.length],
     };
-    
+
     setMembers([...members, newMember]);
     setMemberName('');
   };
 
   const removeMember = (id: string) => {
-    setMembers(members.filter(m => m.id !== id));
+    setMembers(members.filter((member) => member.id !== id));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -89,7 +94,7 @@ export function ManageMembersDialog({
             <Label className="text-sm font-medium">
               สมาชิกทั้งหมด ({members.length} คน)
             </Label>
-            
+
             <div className="grid gap-2 sm:flex">
               <Input
                 placeholder="ชื่อสมาชิก"
@@ -113,28 +118,50 @@ export function ManageMembersDialog({
 
             {members.length > 0 && (
               <div className="flex flex-wrap gap-2 pt-2">
-                {members.map((member) => (
-                  <Badge
-                    key={member.id}
-                    variant="secondary"
-                    className="max-w-full gap-2 px-3 py-2 text-sm"
-                    style={{
-                      backgroundColor: `${member.color}15`,
-                      color: member.color,
-                      borderColor: `${member.color}30`,
-                    }}
-                  >
-                    {member.name}
-                    <button
-                      type="button"
-                      onClick={() => removeMember(member.id)}
-                      className="-mr-1 inline-flex min-h-6 min-w-6 items-center justify-center rounded-md transition-opacity hover:opacity-70"
+                {members.map((member) => {
+                  // Removing them would orphan those expenses, so the group
+                  // total would no longer match the per-person summaries.
+                  const isLocked = isMemberReferenced(expenses, member.id);
+
+                  return (
+                    <Badge
+                      key={member.id}
+                      variant="secondary"
+                      className="max-w-full gap-2 px-3 py-2 text-sm"
+                      style={{
+                        backgroundColor: `${member.color}15`,
+                        color: member.color,
+                        borderColor: `${member.color}30`,
+                      }}
                     >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </Badge>
-                ))}
+                      {member.name}
+                      {isLocked ? (
+                        <span
+                          className="-mr-1 inline-flex min-h-6 min-w-6 items-center justify-center opacity-60"
+                          title="ลบไม่ได้เพราะยังมีรายการค่าใช้จ่ายที่อ้างถึงคนนี้"
+                        >
+                          <Lock className="w-3 h-3" />
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => removeMember(member.id)}
+                          className="-mr-1 inline-flex min-h-6 min-w-6 items-center justify-center rounded-md transition-opacity hover:opacity-70"
+                          aria-label={`ลบ ${member.name}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </Badge>
+                  );
+                })}
               </div>
+            )}
+
+            {members.some((member) => isMemberReferenced(expenses, member.id)) && (
+              <p className="text-xs text-muted-foreground">
+                🔒 คนที่มีรายการค่าใช้จ่ายอยู่แล้วจะลบไม่ได้ — ต้องลบหรือแก้รายการนั้นก่อน
+              </p>
             )}
 
             {members.length > 0 && members.length < 2 && (
@@ -143,6 +170,16 @@ export function ManageMembersDialog({
               </p>
             )}
           </div>
+
+          {errorMessage && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="min-w-0">{errorMessage}</span>
+            </div>
+          )}
 
           <div className="grid gap-3 pt-4 sm:flex">
             <Button

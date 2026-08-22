@@ -13,7 +13,6 @@ export interface IExpense {
   paidBy: string;
   splitWith: string[];
   date: Date;
-  category?: string;
 }
 
 export interface ISettlement {
@@ -22,20 +21,37 @@ export interface ISettlement {
   amount: number;
 }
 
+/**
+ * How much of a directed debt (from -> to) has already been transferred.
+ * Amount-based on purpose: adding an expense afterwards must not silently
+ * discard the fact that money already changed hands.
+ */
+export interface IPaidSettlement {
+  from: string;
+  to: string;
+  amount: number;
+  paidAt: Date;
+}
+
 export interface IGroup {
   _id?: string;
   members: IMember[];
   expenses: IExpense[];
+  paidSettlements?: IPaidSettlement[];
+  /** @deprecated legacy `from->to:cents` keys, migrated on read. */
   paidSettlementKeys?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
 
-const MemberSchema = new Schema<IMember>({
-  id: { type: String, required: true },
-  name: { type: String, required: true },
-  color: { type: String, required: true },
-});
+const MemberSchema = new Schema<IMember>(
+  {
+    id: { type: String, required: true },
+    name: { type: String, required: true },
+    color: { type: String, required: true },
+  },
+  { _id: false }
+);
 
 const ExpenseSchema = new Schema<IExpense>({
   description: { type: String, required: true },
@@ -43,13 +59,23 @@ const ExpenseSchema = new Schema<IExpense>({
   paidBy: { type: String, required: true },
   splitWith: [{ type: String, required: true }],
   date: { type: Date, default: Date.now },
-  category: { type: String },
 });
+
+const PaidSettlementSchema = new Schema<IPaidSettlement>(
+  {
+    from: { type: String, required: true },
+    to: { type: String, required: true },
+    amount: { type: Number, required: true },
+    paidAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
 
 const GroupSchema = new Schema<IGroup>(
   {
     members: [MemberSchema],
     expenses: [ExpenseSchema],
+    paidSettlements: [PaidSettlementSchema],
     paidSettlementKeys: [{ type: String }],
   },
   {

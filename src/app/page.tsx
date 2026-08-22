@@ -3,11 +3,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { IExpense, IGroup, IMember } from '@/models/Group';
 import { Button } from '@/components/ui/button';
-import { Plus, Users, ArrowRightLeft } from 'lucide-react';
+import { AlertCircle, Plus, Users } from 'lucide-react';
 import { ExpenseList } from '@/components/ExpenseList';
 import { AddExpenseDialog } from '@/components/AddExpenseDialog';
 import { ManageMembersDialog } from '@/components/ManageMembersDialog';
-import Link from 'next/link';
+import { fetchGroup as fetchGroupRequest, saveGroup, GroupUpdates } from '@/lib/api';
 
 export default function HomePage() {
   const [group, setGroup] = useState<IGroup | null>(null);
@@ -16,21 +16,17 @@ export default function HomePage() {
   const [editingExpenseIndex, setEditingExpenseIndex] = useState<number | null>(null);
   const [manageMembersOpen, setManageMembersOpen] = useState(false);
   const [isMockMode, setIsMockMode] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchGroup = useCallback(async () => {
     try {
-      const response = await fetch('/api/group');
-      const data = await response.json();
-      
-      if (data._id?.startsWith('mock-')) {
-        setIsMockMode(true);
-      }
-      
-      if (response.ok) {
-        setGroup(data);
-      }
+      const data = await fetchGroupRequest();
+
+      setIsMockMode(Boolean(data._id?.startsWith('mock-')));
+      setGroup(data);
     } catch (error) {
       console.error('Failed to fetch group:', error);
+      setErrorMessage('โหลดข้อมูลไม่สำเร็จ กรุณารีเฟรชหน้า');
     } finally {
       setLoading(false);
     }
@@ -41,24 +37,40 @@ export default function HomePage() {
     fetchGroup();
   }, [fetchGroup]);
 
+  /** Returns true when the change was saved. */
+  const save = useCallback(
+    async (updates: GroupUpdates): Promise<boolean> => {
+      if (!group) return false;
+
+      setErrorMessage(null);
+      const result = await saveGroup(updates, group.updatedAt);
+
+      if (result.ok) {
+        setGroup(result.group);
+        return true;
+      }
+
+      setErrorMessage(result.error);
+
+      // Someone else changed the group: show them the current data right away.
+      if (result.conflict) {
+        if (result.group) {
+          setGroup(result.group);
+        } else {
+          await fetchGroup();
+        }
+      }
+
+      return false;
+    },
+    [group, fetchGroup]
+  );
+
   const handleExpenseAdded = async (expense: IExpense) => {
     if (!group) return;
 
-    try {
-      const response = await fetch('/api/group', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          expenses: [...group.expenses, expense],
-        }),
-      });
-
-      if (response.ok) {
-        setAddExpenseOpen(false);
-        fetchGroup();
-      }
-    } catch (error) {
-      console.error('Failed to add expense:', error);
+    if (await save({ expenses: [...group.expenses, expense] })) {
+      setAddExpenseOpen(false);
     }
   };
 
@@ -69,60 +81,20 @@ export default function HomePage() {
       index === editingExpenseIndex ? expense : currentExpense
     );
 
-    try {
-      const response = await fetch('/api/group', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          expenses: updatedExpenses,
-        }),
-      });
-
-      if (response.ok) {
-        setEditingExpenseIndex(null);
-        fetchGroup();
-      }
-    } catch (error) {
-      console.error('Failed to update expense:', error);
+    if (await save({ expenses: updatedExpenses })) {
+      setEditingExpenseIndex(null);
     }
   };
 
   const handleExpenseDeleted = async (expenseIndex: number) => {
     if (!group) return;
 
-    const updatedExpenses = group.expenses.filter((_, i) => i !== expenseIndex);
-
-    try {
-      const response = await fetch('/api/group', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          expenses: updatedExpenses,
-        }),
-      });
-
-      if (response.ok) {
-        fetchGroup();
-      }
-    } catch (error) {
-      console.error('Failed to delete expense:', error);
-    }
+    await save({ expenses: group.expenses.filter((_, index) => index !== expenseIndex) });
   };
 
   const handleMembersUpdated = async (members: IMember[]) => {
-    try {
-      const response = await fetch('/api/group', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ members }),
-      });
-
-      if (response.ok) {
-        setManageMembersOpen(false);
-        fetchGroup();
-      }
-    } catch (error) {
-      console.error('Failed to update members:', error);
+    if (await save({ members })) {
+      setManageMembersOpen(false);
     }
   };
 
@@ -152,10 +124,14 @@ export default function HomePage() {
           <p className="text-muted-foreground mb-8">
             เพิ่มสมาชิกในกลุ่มเพื่อเริ่มบันทึกค่าใช้จ่าย
           </p>
+          {errorMessage && (
+            <p className="mb-6 text-sm text-destructive">{errorMessage}</p>
+          )}
           <Button
             onClick={() => setManageMembersOpen(true)}
             size="lg"
             className="gap-2"
+            disabled={!group}
           >
             <Users className="w-4 h-4" />
             เพิ่มสมาชิก
@@ -166,7 +142,9 @@ export default function HomePage() {
           open={manageMembersOpen}
           onOpenChange={setManageMembersOpen}
           members={[]}
+          expenses={group?.expenses ?? []}
           onSuccess={handleMembersUpdated}
+          errorMessage={errorMessage}
         />
       </div>
     );
@@ -208,6 +186,16 @@ export default function HomePage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-3 py-3 pb-20 sm:px-6 sm:py-5">
+        {errorMessage && (
+          <div
+            role="alert"
+            className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="min-w-0">{errorMessage}</span>
+          </div>
+        )}
+
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-lg font-serif text-foreground sm:text-xl">รายการทั้งหมด</h2>
           <Button onClick={() => setAddExpenseOpen(true)} className="h-9 gap-2 px-3">
@@ -225,14 +213,14 @@ export default function HomePage() {
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-border/70 bg-background/95 px-3 py-2 backdrop-blur sm:hidden">
-        <div className="mx-auto grid max-w-4xl grid-cols-2 gap-2">
+        <div className="mx-auto max-w-4xl">
           <Button
             onClick={() => setManageMembersOpen(true)}
             variant="outline"
-            className="h-10 gap-2"
+            className="h-10 w-full gap-2"
           >
             <Users className="w-4 h-4" />
-            สมาชิก
+            จัดการสมาชิก
           </Button>
         </div>
       </nav>
@@ -275,7 +263,9 @@ export default function HomePage() {
         open={manageMembersOpen}
         onOpenChange={setManageMembersOpen}
         members={group.members}
+        expenses={group.expenses}
         onSuccess={handleMembersUpdated}
+        errorMessage={errorMessage}
       />
     </div>
   );

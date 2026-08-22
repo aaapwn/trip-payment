@@ -6,25 +6,25 @@
 
 ## ✨ คุณสมบัติหลัก
 
-### 1. จัดการทริป
-- สร้างทริปใหม่พร้อมชื่อและสมาชิก
+### 1. จัดการสมาชิก
+- ระบบทำงานบนกลุ่มเดียว (single group) ไม่มีการแยกทริป
 - แต่ละสมาชิกมีสีประจำตัวสำหรับจำแนก
-- ดูรายการทริปทั้งหมดพร้อมสรุปข้อมูล
+- ลบสมาชิกได้เฉพาะคนที่ยังไม่มีรายการค่าใช้จ่ายอ้างถึง เพื่อไม่ให้ยอดรวมกับสรุปรายคนไม่ตรงกัน
 
 ### 2. บันทึกค่าใช้จ่าย
-- เพิ่มรายการค่าใช้จ่ายพร้อมรายละเอียด
+- เพิ่ม แก้ไข ลบรายการค่าใช้จ่ายพร้อมรายละเอียดและวันที่
 - ระบุผู้จ่ายและผู้ร่วมแชร์ได้อย่างยืดหยุ่น
-- ลบรายการที่ผิดพลาดได้
+- รองรับรายการเงินคืนด้วยยอดติดลบ (กลับทิศการจ่าย)
 - แสดงจำนวนเงินต่อคน
 
 ### 3. คำนวณอัตโนมัติ
-- คำนวณยอดคงเหลือของแต่ละคนแบบเรียลไทม์
-- สรุปว่าใครต้องโอนให้ใครเท่าไหร่
-- ใช้อัลกอริทึมลดจำนวนการโอนให้น้อยที่สุด
+- สรุปว่าใครต้องโอนให้ใครเท่าไหร่ แยกตามคนและตามรายการ
+- คิดหนี้แบบรายคู่ (gross) ไม่หักลบหนี้สองทาง เพื่อให้ตามกลับไปที่รายการต้นทางได้
+- ติ๊กว่าจ่ายแล้วได้ โดยเก็บเป็นจำนวนเงินที่โอนจริง
 
 ### 4. สถิติและสรุป
-- ยอดรวมทั้งหมดของทริป
-- ยอดจ่าย ยอดค้าง และยอดสุทธิของแต่ละคน
+- ยอดรวมทั้งหมดของกลุ่ม
+- ยอดจ่าย ส่วนแบ่งที่ต้องจ่าย และคงเหลือสุทธิ (หลังหักที่โอนกันแล้ว)
 - แสดงสถานะว่าใครได้เงินคืนหรือต้องจ่าย
 
 ## 🎨 Design Highlights
@@ -76,30 +76,34 @@ Runtime:
 
 ### Database Schema
 
-**Trip Model:**
+**Group Model** (เอกสารเดียวต่อกลุ่ม):
 ```typescript
 {
-  name: string
   members: [
     { id, name, color }
   ]
   expenses: [
     { description, amount, paidBy, splitWith[], date }
   ]
+  paidSettlements: [
+    { from, to, amount, paidAt }   // ยอดที่โอนจริงต่อคู่
+  ]
   createdAt: Date
-  updatedAt: Date
+  updatedAt: Date                  // ใช้เป็น optimistic-concurrency token
 }
 ```
 
 ### API Endpoints
 
 ```
-GET    /api/trips          # ดึงรายการทริปทั้งหมด
-POST   /api/trips          # สร้างทริปใหม่
-GET    /api/trips/[id]     # ดึงข้อมูลทริป
-PATCH  /api/trips/[id]     # อัปเดตทริป (เพิ่ม/ลบ expense)
-DELETE /api/trips/[id]     # ลบทริป
+GET    /api/group          # ดึงข้อมูลกลุ่ม (สร้างกลุ่มเปล่าให้ถ้ายังไม่มี)
+PATCH  /api/group          # อัปเดต members / expenses / paidSettlements
 ```
+
+`PATCH` ตรวจ body ด้วย zod แบบ strict และรับ `expectedUpdatedAt`:
+- คีย์ที่ไม่รู้จักถูกปฏิเสธ (`400`) จึงยิง MongoDB operator เข้ามาไม่ได้
+- ข้อมูลที่ทำให้ members กับ expenses ไม่สอดคล้องกันถูกปฏิเสธ (`400`)
+- ถ้ามีคนอื่นแก้ข้อมูลไปก่อน จะได้ `409` พร้อมข้อมูลล่าสุด แทนที่จะเขียนทับของคนอื่น
 
 ## 📂 โครงสร้างไฟล์
 
@@ -107,8 +111,10 @@ DELETE /api/trips/[id]     # ลบทริป
 trip-payment/
 ├── src/
 │   ├── app/
-│   │   ├── api/trips/              # API routes
-│   │   ├── trips/[id]/             # Trip detail page
+│   │   ├── api/group/route.ts      # API route
+│   │   ├── settlements/            # สรุปโอนเงิน (+ select/)
+│   │   ├── receivables/            # เงินที่ต้องได้รับ (+ select/)
+│   │   ├── stats/                  # สถิติแต่ละคน
 │   │   ├── page.tsx                # Home page
 │   │   ├── loading.tsx             # Loading state
 │   │   ├── error.tsx               # Error boundary
@@ -118,23 +124,27 @@ trip-payment/
 │   │
 │   ├── components/
 │   │   ├── ui/                     # shadcn/ui components
-│   │   ├── TripCard.tsx            # Trip list item
-│   │   ├── NewTripDialog.tsx       # Create trip form
+│   │   ├── AppSidebar.tsx          # Sidebar / mobile nav
 │   │   ├── ExpenseList.tsx         # Expense items
-│   │   ├── SettlementSummary.tsx   # Payment summary
-│   │   ├── MemberStats.tsx         # Per-member stats
-│   │   └── AddExpenseDialog.tsx    # Add expense form
+│   │   ├── AddExpenseDialog.tsx    # Add / edit expense form
+│   │   ├── ManageMembersDialog.tsx # Manage members
+│   │   └── SettlementSummary.tsx   # Netted view (ไม่ได้ใช้ในหน้าหลัก)
 │   │
 │   ├── lib/
 │   │   ├── mongodb.ts              # DB connection
-│   │   ├── calculations.ts         # Settlement algorithm
+│   │   ├── api.ts                  # Client helper
+│   │   ├── settlements.ts          # Pairwise debts + paid amounts
+│   │   ├── calculations.ts         # Netting helper
+│   │   ├── validation.ts           # zod schemas
 │   │   └── utils.ts                # Utilities
 │   │
 │   └── models/
-│       └── Trip.ts                 # Mongoose schema
+│       └── Group.ts                # Mongoose schema
 │
 ├── scripts/
 │   └── seed.ts                     # Seed sample data
+│
+├── .github/workflows/ci.yml        # lint + typecheck + test + build
 │
 ├── .env.local                      # Environment variables
 ├── .env.local.example              # Example env file
@@ -146,31 +156,29 @@ trip-payment/
 └── PROJECT_SUMMARY.md              # This file
 ```
 
-## 🧮 Settlement Algorithm
+## 🧮 Settlement Logic
 
-อัลกอริทึม Greedy สำหรับคำนวณการชำระเงิน:
+หน้าจอหลักใช้หนี้แบบ **รายคู่ต่อรายการ (gross)** — `src/lib/settlements.ts`
 
-1. **Calculate Balances** - คำนวณยอดคงเหลือของแต่ละคน
+1. **Build pairs** - ทุกรายการหารเท่าๆ กันตาม `splitWith` แล้วสร้างหนี้ทิศทางเดียว
    ```
-   balance[person] = total_paid - total_owed
-   ```
-
-2. **Separate Groups** - แบ่งเป็น creditors (บวก) และ debtors (ลบ)
-   ```
-   creditors: คนที่มียอดบวก (ได้เงินคืน)
-   debtors: คนที่มียอดลบ (ต้องจ่าย)
+   for each expense:
+     share = amount / splitWith.length
+     for each member in splitWith (ยกเว้นคนจ่าย):
+       debt[member → payer] += share      // ยอดติดลบ = เงินคืน, กลับทิศ
    ```
 
-3. **Greedy Matching** - จับคู่เพื่อลดจำนวนการโอน
-   ```
-   for each debtor:
-     for each creditor:
-       settlement_amount = min(debt, credit)
-       create settlement(debtor → creditor, amount)
-       update remaining debt and credit
-   ```
+2. **ไม่หักลบสองทาง** - A ค้าง B และ B ค้าง A จะแสดงแยกกัน (ตั้งใจ เพื่อให้ตามรายการต้นทางได้)
 
-**ผลลัพธ์**: จำนวนการโอนเงินน้อยที่สุดที่ทำให้ทุกคนเท่ากัน
+3. **Paid amounts** - `paidSettlements` เก็บยอดที่โอนจริงต่อคู่
+   ```
+   outstanding = max(total - paidAmount, 0)
+   settled     = paidAmount >= total
+   ```
+   รายการใหม่ที่เพิ่มมาทีหลังจึงกลายเป็นยอดค้างส่วนต่าง ไม่ใช่ลบเครื่องหมายที่ติ๊กไว้ทิ้ง
+
+> `src/lib/calculations.ts` ยังมีอัลกอริทึม netting แบบ greedy (ลดจำนวนรอบโอน) ใช้ผ่าน `SettlementSummary`
+> แต่หน้าจอหลักไม่ได้เรียกใช้
 
 ## 🎯 Design Principles
 
@@ -208,9 +216,16 @@ bun run start
 bun run seed
 ```
 
+### Checks
+```bash
+bun run lint        # ESLint
+bunx tsc --noEmit   # Typecheck
+bun test            # Unit tests
+```
+
 ## 📊 Performance Considerations
 
-- **Database**: Single-document design สำหรับทริป (ไม่ต้อง join)
+- **Database**: Single-document design สำหรับกลุ่ม (ไม่ต้อง join)
 - **API**: REST API ที่เรียบง่าย
 - **Client**: Client-side calculation สำหรับ instant feedback
 - **Caching**: MongoDB connection caching
@@ -219,8 +234,10 @@ bun run seed
 ## 🔒 Security Notes
 
 - MongoDB connection ผ่าน environment variables
-- ไม่มี authentication (สมมติใช้ในกลุ่มปิด)
-- Input validation ด้วย Mongoose schema
+- **ไม่มี authentication** — ใครเข้าถึง URL ได้ก็แก้ข้อมูลกลุ่มได้ ต้องใช้ในวงปิดเท่านั้น
+- Server-side validation ด้วย zod แบบ strict (ปฏิเสธคีย์ที่ไม่รู้จัก จึงกัน MongoDB operator injection)
+- Referential integrity check ระหว่าง members กับ expenses ตอนเขียน
+- Optimistic concurrency ผ่าน `expectedUpdatedAt` กันการเขียนทับกันเอง
 - Client-side validation ก่อน submit
 
 ## 🎨 What Makes It NOT AI Slop
