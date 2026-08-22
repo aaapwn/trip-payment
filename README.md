@@ -4,10 +4,11 @@
 
 ## ✨ คุณสมบัติ
 
-- 📝 **บันทึกรายการค่าใช้จ่าย** - เพิ่มรายการใหม่ได้ทันที
-- 👥 **จัดการสมาชิก** - เพิ่มลดสมาชิกในกลุ่มได้
-- 🧮 **คำนวณอัตโนมัติ** - คำนวณว่าใครต้องจ่ายใครเท่าไหร่แบบเรียลไทม์
-- 📊 **สถิติแต่ละคน** - ดูยอดจ่ายและยอดค้างของแต่ละคน
+- 📝 **บันทึกรายการค่าใช้จ่าย** - เพิ่ม แก้ไข ลบรายการได้ (รวมรายการเงินคืนด้วยยอดติดลบ)
+- 👥 **จัดการสมาชิก** - เพิ่มสมาชิกได้ ลบได้เฉพาะคนที่ยังไม่มีรายการค่าใช้จ่าย
+- 🧮 **คำนวณอัตโนมัติ** - แยกตามคนว่าต้องจ่ายคืนใครเท่าไหร่
+- ✅ **ติ๊กว่าจ่ายแล้ว** - บันทึกยอดที่โอนจริง ไม่หลุดเมื่อมีรายการใหม่เข้ามา
+- 📊 **สถิติแต่ละคน** - ยอดจ่าย ส่วนแบ่ง และคงเหลือสุทธิหลังหักที่โอนกันแล้ว
 - 💫 **UI สวยงาม** - Minimal design สีสบายตา ใช้งานง่าย
 
 ## 🛠️ เทคโนโลยี
@@ -96,9 +97,10 @@ bun run dev
 ### ดูสรุปการชำระเงิน
 
 ระบบจะคำนวณและแสดง:
-- **รายการค่าใช้จ่ายทั้งหมด** - เรียงตามวันที่
-- **สรุปการชำระเงิน** - ใครต้องโอนให้ใครเท่าไหร่ (ลดจำนวนการโอนให้น้อยที่สุด)
-- **สถิติแต่ละคน** - ยอดจ่าย ยอดค้าง และยอดสุทธิ
+- **รายการค่าใช้จ่ายทั้งหมด** (`/`) - เรียงตามวันที่
+- **สรุปโอนเงิน** (`/settlements`) - แยกตามคน ว่าต้องจ่ายคืนใครเท่าไหร่ พร้อมช่องติ๊กว่าจ่ายแล้ว
+- **เงินที่ต้องได้รับ** (`/receivables`) - ใครยังไม่โอนคืนเรา และค้างอยู่เท่าไหร่
+- **สถิติแต่ละคน** (`/stats`) - ยอดจ่าย ส่วนแบ่งที่ต้องจ่าย และคงเหลือสุทธิ
 
 ## 🎨 Design System
 
@@ -120,15 +122,20 @@ bun run dev
 - Generous whitespace สำหรับความชัดเจน
 - Card-based layout พร้อม subtle shadows
 
-## 🧮 อัลกอริทึมการคำนวณ
+## 🧮 การคำนวณ
 
-ระบบใช้อัลกอริทึม **Greedy Algorithm** ในการคำนวณการชำระเงิน:
+หน้าสรุปคิด **หนี้แบบรายคู่ต่อรายการ (gross)** — ตั้งใจให้เป็นแบบนี้เพื่อให้ตามกลับไปที่รายการต้นทางได้:
 
-1. คำนวณยอดคงเหลือของแต่ละคน (ยอดจ่าย - ยอดค้าง)
-2. แบ่งเป็น 2 กลุ่ม: คนที่ได้เงินคืน (creditors) และคนที่ต้องจ่าย (debtors)
-3. จับคู่เพื่อลดจำนวนการโอนให้น้อยที่สุด
+1. แต่ละรายการ ยอดจะถูกหารเท่าๆ กันตามคนใน `splitWith`
+2. ทุกคนที่ร่วมหาร (ยกเว้นคนจ่าย) เป็นหนี้คนที่ออกเงินไปเท่ากับส่วนแบ่งของตัวเอง
+3. รายการยอดติดลบ (เงินคืน) จะกลับทิศ — คนที่รับเงินคืนมาเป็นคนที่ต้องจ่ายให้คนอื่น
+4. หนี้คนละทิศระหว่างคนสองคน **ไม่ถูกหักลบกัน** เช่น A ค้าง B 500 และ B ค้าง A 300 จะแสดงทั้งสองรายการ
 
-ผลลัพธ์: การโอนเงินที่มีจำนวนรอบน้อยที่สุดเพื่อให้ทุกคนเท่ากัน
+ยอดที่ติ๊กว่า "จ่ายแล้ว" ถูกเก็บเป็น**จำนวนเงินที่โอนจริง** ต่อคู่ ดังนั้นถ้ามีรายการใหม่เพิ่มเข้ามาทีหลัง
+เครื่องหมายที่ติ๊กไว้จะไม่หาย แต่จะกลายเป็นยอด "ค้างจ่าย" ส่วนต่างแทน
+
+> `src/lib/calculations.ts` มีฟังก์ชัน netting (greedy, ลดจำนวนรอบโอน) พร้อมใช้อยู่ แต่หน้าจอหลักไม่ได้ใช้
+> — ใช้ผ่าน `SettlementSummary` ถ้าต้องการมุมมองแบบหักลบ
 
 ## 📁 โครงสร้างโปรเจค
 
@@ -136,31 +143,57 @@ bun run dev
 trip-payment/
 ├── src/
 │   ├── app/
-│   │   ├── api/
-│   │   │   └── trips/          # API routes
-│   │   ├── trips/
-│   │   │   └── [id]/           # Trip detail page
-│   │   ├── layout.tsx
-│   │   ├── page.tsx            # Home page
-│   │   └── globals.css         # Global styles
+│   │   ├── api/group/route.ts      # GET / PATCH ข้อมูลกลุ่ม
+│   │   ├── settlements/            # สรุปโอนเงิน (+ select/ เลือกคน)
+│   │   ├── receivables/            # เงินที่ต้องได้รับ (+ select/)
+│   │   ├── stats/                  # สถิติแต่ละคน
+│   │   ├── layout.tsx              # Root layout + sidebar
+│   │   ├── page.tsx                # รายการค่าใช้จ่าย
+│   │   ├── loading.tsx / error.tsx / not-found.tsx
+│   │   └── globals.css             # Global styles + design tokens
 │   ├── components/
-│   │   ├── ui/                 # shadcn/ui components
-│   │   ├── TripCard.tsx
-│   │   ├── NewTripDialog.tsx
+│   │   ├── ui/                     # shadcn/ui components
+│   │   ├── AppSidebar.tsx
 │   │   ├── ExpenseList.tsx
-│   │   ├── SettlementSummary.tsx
-│   │   ├── MemberStats.tsx
-│   │   └── AddExpenseDialog.tsx
+│   │   ├── AddExpenseDialog.tsx
+│   │   ├── ManageMembersDialog.tsx
+│   │   └── SettlementSummary.tsx   # มุมมองแบบหักลบ (ไม่ได้ใช้ในหน้าหลัก)
 │   ├── lib/
-│   │   ├── mongodb.ts          # Database connection
-│   │   ├── calculations.ts     # Settlement algorithm
+│   │   ├── mongodb.ts              # Database connection
+│   │   ├── api.ts                  # Client helper (+ optimistic concurrency)
+│   │   ├── settlements.ts          # หนี้รายคู่ + ยอดที่จ่ายแล้ว
+│   │   ├── calculations.ts         # Netting helper
+│   │   ├── validation.ts           # zod schema สำหรับ API
 │   │   └── utils.ts
 │   └── models/
-│       └── Trip.ts             # Mongoose models
-├── .env.local                  # Environment variables
+│       └── Group.ts                # Mongoose schema
+├── scripts/seed.ts                 # ใส่ข้อมูลตัวอย่าง
+├── .github/workflows/ci.yml        # lint + typecheck + test + build
+├── .env.local.example
 ├── package.json
 └── README.md
 ```
+
+## 🔌 API
+
+| Method | Path | หมายเหตุ |
+| --- | --- | --- |
+| `GET` | `/api/group` | ข้อมูลกลุ่มทั้งก้อน (สร้างกลุ่มเปล่าให้ถ้ายังไม่มี) |
+| `PATCH` | `/api/group` | อัปเดต `members`, `expenses`, `paidSettlements` |
+
+`PATCH` ตรวจ body ด้วย zod แบบ strict (คีย์ที่ไม่รู้จักถูกปฏิเสธ จึงยิง MongoDB operator เข้ามาไม่ได้) และรับ
+`expectedUpdatedAt` เป็น optimistic-concurrency token — ถ้ามีคนอื่นแก้ข้อมูลไปก่อนจะได้ `409` กลับมาพร้อมข้อมูลล่าสุด
+แทนที่จะเขียนทับของคนอื่น
+
+## 🧪 ตรวจสอบโค้ด
+
+```bash
+bun run lint        # ESLint
+bunx tsc --noEmit   # Typecheck
+bun test            # Unit tests (logic การหารหนี้ + validation)
+```
+
+CI บน GitHub Actions รันทั้งสี่อย่าง (รวม `bun run build`) ทุก push เข้า `main` และทุก pull request
 
 ## 🚀 Production Build
 

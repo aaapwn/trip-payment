@@ -3,42 +3,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, ArrowRight, CheckCircle2, Clock3, UserRoundSearch, Users } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  UserRoundSearch,
+  Users,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { th } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { IGroup, IMember } from '@/models/Group';
-
-interface ShareLine {
-  expenseIndex: number;
-  description: string;
-  date: Date;
-  amount: number;
-  totalAmount: number;
-}
-
-interface DebtorGroup {
-  member: IMember;
-  total: number;
-  items: ShareLine[];
-}
-
-interface ReceivableSummary {
-  member: IMember;
-  total: number;
-  receivedTotal: number;
-  outstandingTotal: number;
-  paidCount: number;
-  debtors: DebtorGroup[];
-}
-
-const formatCurrency = (amount: number) =>
-  `฿${amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
-
-const getPaymentKey = (fromMemberId: string, toMemberId: string, amount: number) =>
-  `${fromMemberId}->${toMemberId}:${Math.round(amount * 100)}`;
+import { IGroup } from '@/models/Group';
+import { fetchGroup as fetchGroupRequest } from '@/lib/api';
+import { buildReceivableSummaries, formatCurrency } from '@/lib/settlements';
 
 export default function ReceivablesPage() {
   const router = useRouter();
@@ -47,17 +28,14 @@ export default function ReceivablesPage() {
   const [group, setGroup] = useState<IGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchGroup = useCallback(async () => {
     try {
-      const response = await fetch('/api/group');
-      const data = await response.json();
-
-      if (response.ok) {
-        setGroup(data);
-      }
+      setGroup(await fetchGroupRequest());
     } catch (error) {
       console.error('Failed to fetch group:', error);
+      setErrorMessage('โหลดข้อมูลไม่สำเร็จ กรุณารีเฟรชหน้า');
     } finally {
       setLoading(false);
     }
@@ -68,91 +46,10 @@ export default function ReceivablesPage() {
     fetchGroup();
   }, [fetchGroup]);
 
-  const paidSettlementKeys = useMemo(
-    () => group?.paidSettlementKeys ?? [],
-    [group?.paidSettlementKeys]
+  const receivableSummaries = useMemo(
+    () => (group ? buildReceivableSummaries(group) : []),
+    [group]
   );
-
-  const receivableSummaries = useMemo<ReceivableSummary[]>(() => {
-    if (!group) return [];
-
-    return group.members
-      .map((receiver) => {
-        const debtorMap = new Map<string, DebtorGroup>();
-
-        group.members.forEach((payer) => {
-          group.expenses.forEach((expense, expenseIndex) => {
-            const paidByMember = group.members.find((item) => item.id === expense.paidBy);
-            const shareAmount = expense.amount / expense.splitWith.length;
-            const isRefund = shareAmount < 0;
-            const shouldPay = isRefund
-              ? expense.paidBy === payer.id
-              : expense.paidBy !== payer.id && expense.splitWith.includes(payer.id);
-
-            if (!paidByMember || !shouldPay) return;
-
-            const payeeMembers: IMember[] = isRefund
-              ? expense.splitWith
-                  .filter((memberId) => memberId !== expense.paidBy)
-                  .map((memberId) => group.members.find((item) => item.id === memberId))
-                  .filter((item): item is IMember => Boolean(item))
-              : [paidByMember];
-
-            if (!payeeMembers.some((payee) => payee.id === receiver.id)) return;
-
-            const line: ShareLine = {
-              expenseIndex,
-              description: expense.description,
-              date: expense.date,
-              amount: Math.abs(shareAmount),
-              totalAmount: expense.amount,
-            };
-
-            const existingDebtor = debtorMap.get(payer.id);
-            if (existingDebtor) {
-              existingDebtor.items.push(line);
-              existingDebtor.total += line.amount;
-            } else {
-              debtorMap.set(payer.id, {
-                member: payer,
-                total: line.amount,
-                items: [line],
-              });
-            }
-          });
-        });
-
-        const debtors = Array.from(debtorMap.values())
-          .map((debtor) => ({
-            ...debtor,
-            items: debtor.items.sort(
-              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-            ),
-          }))
-          .sort((a, b) => b.total - a.total);
-
-        const paidCount = debtors.filter((debtor) =>
-          paidSettlementKeys.includes(getPaymentKey(debtor.member.id, receiver.id, debtor.total))
-        ).length;
-        const total = debtors.reduce((sum, debtor) => sum + debtor.total, 0);
-        const receivedTotal = debtors.reduce((sum, debtor) => {
-          const isPaid = paidSettlementKeys.includes(
-            getPaymentKey(debtor.member.id, receiver.id, debtor.total)
-          );
-          return sum + (isPaid ? debtor.total : 0);
-        }, 0);
-
-        return {
-          member: receiver,
-          total,
-          receivedTotal,
-          outstandingTotal: total - receivedTotal,
-          paidCount,
-          debtors,
-        };
-      })
-      .filter((summary) => summary.debtors.length > 0);
-  }, [group, paidSettlementKeys]);
 
   const memberIdFromQuery = searchParams.get('memberId');
   const selectedSummary =
@@ -167,7 +64,7 @@ export default function ReceivablesPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted/50 mb-4 animate-pulse">
             <Users className="w-8 h-8 text-muted-foreground" />
           </div>
-          <p className="text-muted-foreground">กำลังโหลด...</p>
+          <p className="text-muted-foreground">{errorMessage ?? 'กำลังโหลด...'}</p>
         </div>
       </div>
     );
@@ -206,6 +103,16 @@ export default function ReceivablesPage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-3 py-3 pb-20 sm:px-6 sm:py-5">
+        {errorMessage && (
+          <div
+            role="alert"
+            className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="min-w-0">{errorMessage}</span>
+          </div>
+        )}
+
         {receivableSummaries.length === 0 ? (
           <Card className="p-6 text-center sm:p-12">
             <p className="text-sm text-muted-foreground">ยังไม่มีรายการที่ต้องได้รับเงินคืน</p>
@@ -240,7 +147,7 @@ export default function ReceivablesPage() {
                             : 'bg-muted text-muted-foreground'
                         }`}
                       >
-                        {summary.debtors.length}
+                        {summary.pairs.length}
                       </span>
                     </button>
                   );
@@ -266,7 +173,7 @@ export default function ReceivablesPage() {
                     {selectedSummary.member.name}
                   </Badge>
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    ได้รับแล้ว {formatCurrency(selectedSummary.receivedTotal)} /{' '}
+                    ได้รับแล้ว {formatCurrency(selectedSummary.paidTotal)} /{' '}
                     {formatCurrency(selectedSummary.total)}
                   </p>
                 </div>
@@ -275,100 +182,100 @@ export default function ReceivablesPage() {
                     ค้างรับ {formatCurrency(selectedSummary.outstandingTotal)}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {selectedSummary.paidCount}/{selectedSummary.debtors.length} คนโอนแล้ว
+                    {selectedSummary.settledPairCount}/{selectedSummary.pairs.length} คนโอนแล้ว
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="space-y-2">
-              {selectedSummary.debtors.map((debtor) => {
-                const paymentKey = getPaymentKey(
-                  debtor.member.id,
-                  selectedSummary.member.id,
-                  debtor.total
-                );
-                const isPaid = paidSettlementKeys.includes(paymentKey);
-
-                return (
-                  <Card
-                    key={debtor.member.id}
-                    className={`rounded-lg p-3 transition-colors ${
-                      isPaid ? 'bg-accent/5 ring-1 ring-accent/20' : ''
-                    }`}
-                  >
-                    <div className="mb-2.5 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          <span className="shrink-0 text-xs text-muted-foreground">รอจาก</span>
+              {selectedSummary.pairs.map((pair) => (
+                <Card
+                  key={pair.from.id}
+                  className={`rounded-lg p-3 transition-colors ${
+                    pair.isSettled ? 'bg-accent/5 ring-1 ring-accent/20' : ''
+                  }`}
+                >
+                  <div className="mb-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className="shrink-0 text-xs text-muted-foreground">รอจาก</span>
+                        <Badge
+                          variant="secondary"
+                          className="h-5 min-w-0 max-w-full truncate px-2 text-xs font-medium"
+                          style={{
+                            backgroundColor: `${pair.from.color}15`,
+                            color: pair.from.color,
+                            borderColor: `${pair.from.color}30`,
+                          }}
+                        >
+                          {pair.from.name}
+                        </Badge>
+                        <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {selectedSummary.member.name}
+                        </span>
+                      </div>
+                      <div className="mt-1.5">
+                        {pair.isSettled ? (
                           <Badge
                             variant="secondary"
-                            className="h-5 min-w-0 max-w-full truncate px-2 text-xs font-medium"
-                            style={{
-                              backgroundColor: `${debtor.member.color}15`,
-                              color: debtor.member.color,
-                              borderColor: `${debtor.member.color}30`,
-                            }}
+                            className="h-5 gap-1 bg-accent/10 px-2 text-xs font-medium text-accent"
                           >
-                            {debtor.member.name}
+                            <CheckCircle2 className="h-3 w-3" />
+                            โอนแล้ว
                           </Badge>
-                          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {selectedSummary.member.name}
-                          </span>
-                        </div>
-                        <div className="mt-1.5">
-                          {isPaid ? (
-                            <Badge
-                              variant="secondary"
-                              className="h-5 gap-1 bg-accent/10 px-2 text-xs font-medium text-accent"
-                            >
-                              <CheckCircle2 className="h-3 w-3" />
-                              โอนแล้ว
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="secondary"
-                              className="h-5 gap-1 bg-amber-500/10 px-2 text-xs font-medium text-amber-700"
-                            >
-                              <Clock3 className="h-3 w-3" />
-                              ยังไม่โอน
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-xs text-muted-foreground">รวม</div>
-                        <div className="text-xl font-serif leading-none text-foreground sm:text-2xl">
-                          {formatCurrency(debtor.total)}
-                        </div>
+                        ) : (
+                          <Badge
+                            variant="secondary"
+                            className="h-5 gap-1 bg-amber-500/10 px-2 text-xs font-medium text-amber-700"
+                          >
+                            <Clock3 className="h-3 w-3" />
+                            {pair.isPartiallyPaid
+                              ? `โอนแล้ว ${formatCurrency(pair.paidAmount)}`
+                              : 'ยังไม่โอน'}
+                          </Badge>
+                        )}
                       </div>
                     </div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-xs text-muted-foreground">
+                        {pair.isSettled ? 'รวม' : 'ค้างรับ'}
+                      </div>
+                      <div className="text-xl font-serif leading-none text-foreground sm:text-2xl">
+                        {formatCurrency(pair.isSettled ? pair.total : pair.outstanding)}
+                      </div>
+                      {!pair.isSettled && pair.paidAmount > 0 && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          จากทั้งหมด {formatCurrency(pair.total)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
-                    <div className="space-y-1.5 border-t border-border/60 pt-2.5">
-                      {debtor.items.map((item) => (
-                        <div
-                          key={item.expenseIndex}
-                          className="grid grid-cols-[1fr_auto] gap-3 rounded-md bg-muted/35 px-2.5 py-2"
-                        >
-                          <div className="min-w-0">
-                            <div className="break-words text-sm font-medium leading-snug text-foreground">
-                              {item.description}
-                            </div>
-                            <div className="mt-0.5 text-xs text-muted-foreground">
-                              {format(new Date(item.date), 'd MMM yyyy', { locale: th })} · ยอดรายการ{' '}
-                              {formatCurrency(Math.abs(item.totalAmount))}
-                            </div>
+                  <div className="space-y-1.5 border-t border-border/60 pt-2.5">
+                    {pair.items.map((item) => (
+                      <div
+                        key={item.expenseIndex}
+                        className="grid grid-cols-[1fr_auto] gap-3 rounded-md bg-muted/35 px-2.5 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="break-words text-sm font-medium leading-snug text-foreground">
+                            {item.description}
                           </div>
-                          <div className="shrink-0 text-right font-serif text-base leading-none text-foreground sm:text-lg">
-                            {formatCurrency(item.amount)}
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {format(new Date(item.date), 'd MMM yyyy', { locale: th })} · ยอดรายการ{' '}
+                            {formatCurrency(Math.abs(item.totalAmount))}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </Card>
-                );
-              })}
+                        <div className="shrink-0 text-right font-serif text-base leading-none text-foreground sm:text-lg">
+                          {formatCurrency(item.amount)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              ))}
             </div>
           </div>
         ) : (

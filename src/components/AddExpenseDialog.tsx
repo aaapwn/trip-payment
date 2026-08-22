@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { format, isValid, parse } from 'date-fns';
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,11 @@ interface AddExpenseDialogProps {
   mode?: 'add' | 'edit';
 }
 
+const DATE_INPUT_FORMAT = 'yyyy-MM-dd';
+
+/** Parsed as a local date so the day shown never shifts by timezone. */
+const parseDateInput = (value: string) => parse(value, DATE_INPUT_FORMAT, new Date());
+
 export function AddExpenseDialog({
   open,
   onOpenChange,
@@ -41,6 +47,9 @@ export function AddExpenseDialog({
   const [description, setDescription] = useState(() => initialExpense?.description ?? '');
   const [amount, setAmount] = useState(() =>
     initialExpense ? String(initialExpense.amount) : ''
+  );
+  const [date, setDate] = useState(() =>
+    format(initialExpense?.date ? new Date(initialExpense.date) : new Date(), DATE_INPUT_FORMAT)
   );
   const [paidBy, setPaidBy] = useState(() => initialExpense?.paidBy ?? '');
   const [splitWith, setSplitWith] = useState<string[]>(() => initialExpense?.splitWith ?? []);
@@ -58,30 +67,34 @@ export function AddExpenseDialog({
     setSplitWith(members.map((m) => m.id));
   };
 
+  const amountValue = Number(amount);
+  const isAmountValid = amount.trim() !== '' && Number.isFinite(amountValue);
+  const isDateValid = isValid(parseDateInput(date));
+  const canSubmit =
+    Boolean(description.trim()) &&
+    isAmountValid &&
+    isDateValid &&
+    Boolean(paidBy) &&
+    splitWith.length > 0;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description.trim() || !amount || !paidBy || splitWith.length === 0) return;
+    if (!canSubmit) return;
 
     setLoading(true);
     try {
       const expense: IExpense = {
         ...(initialExpense?._id ? { _id: initialExpense._id } : {}),
         description: description.trim(),
-        amount: parseFloat(amount),
+        amount: amountValue,
         paidBy,
         splitWith,
-        date: initialExpense?.date ? new Date(initialExpense.date) : new Date(),
-        ...(initialExpense?.category ? { category: initialExpense.category } : {}),
+        date: parseDateInput(date),
       };
 
       await onSuccess(expense);
-
-      setDescription('');
-      setAmount('');
-      setPaidBy('');
-      setSplitWith([]);
     } catch (error) {
-      console.error('Failed to add expense:', error);
+      console.error('Failed to save expense:', error);
     } finally {
       setLoading(false);
     }
@@ -114,19 +127,34 @@ export function AddExpenseDialog({
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="amount" className="text-sm font-medium">
-              จำนวนเงิน (บาท)
-            </Label>
-            <Input
-              id="amount"
-              type="number"
-              step="0.01"
-              placeholder="0.00"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="h-11"
-            />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="amount" className="text-sm font-medium">
+                จำนวนเงิน (บาท)
+              </Label>
+              <Input
+                id="amount"
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="h-11"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="date" className="text-sm font-medium">
+                วันที่
+              </Label>
+              <Input
+                id="date"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="h-11"
+              />
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -212,10 +240,11 @@ export function AddExpenseDialog({
               ))}
             </div>
 
-            {splitWith.length > 0 && amount && (
+            {splitWith.length > 0 && isAmountValid && (
               <p className="text-xs text-muted-foreground pt-2">
-                ฿{(parseFloat(amount) / splitWith.length).toLocaleString('th-TH', {
+                ฿{(amountValue / splitWith.length).toLocaleString('th-TH', {
                   minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
                 })}{' '}
                 / คน
               </p>
@@ -235,13 +264,7 @@ export function AddExpenseDialog({
             <Button
               type="submit"
               className="h-11 flex-1 sm:h-8"
-              disabled={
-                !description.trim() ||
-                !amount ||
-                !paidBy ||
-                splitWith.length === 0 ||
-                loading
-              }
+              disabled={!canSubmit || loading}
             >
               {loading
                 ? isEditing

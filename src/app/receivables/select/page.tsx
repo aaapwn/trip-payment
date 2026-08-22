@@ -63,6 +63,12 @@ export default function ReceivablesSelectPage() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-10 border-b border-border/50 bg-background/95 backdrop-blur-sm">
         <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6 sm:py-4">
+          <Link href="/receivables">
+            <Button variant="ghost" size="sm" className="-ml-2 mb-2 min-h-9 gap-2">
+              <ArrowLeft className="w-4 h-4" />
+              เงินที่ต้องได้รับ
+            </Button>
+          </Link>
 
           <h1 className="text-2xl font-serif leading-none tracking-tight text-foreground sm:text-3xl">
             เลือกคน
