@@ -205,6 +205,44 @@ bun run build
 bun run start
 ```
 
+## 🐳 Docker
+
+### รันพร้อม MongoDB ด้วย compose (แนะนำ)
+
+```bash
+docker compose up --build
+```
+
+เปิด http://localhost:3000 — compose จะยก MongoDB ขึ้นให้ (เก็บข้อมูลใน volume `mongo-data`)
+และตั้ง `MONGODB_URI=mongodb://mongo:27017/trip-payment` ให้ container ของแอปเอง
+
+หยุด: `docker compose down` (เพิ่ม `-v` ถ้าจะลบข้อมูลใน DB ทิ้งด้วย)
+
+อยากใส่ข้อมูลตัวอย่าง: uncomment `ports` ของ service `mongo` ใน `docker-compose.yml` แล้วรันจากเครื่องตัวเอง
+
+```bash
+MONGODB_URI=mongodb://localhost:27017/trip-payment bun run seed
+```
+
+### build/run image เดี่ยว
+
+```bash
+docker build -t trip-payment .
+
+# ต่อ MongoDB ที่มีอยู่แล้ว
+docker run -p 3000:3000 -e MONGODB_URI=<connection-string> trip-payment
+
+# หรือรันเปล่า ๆ ได้เลย — ไม่มี MONGODB_URI จะเข้า mock mode
+docker run -p 3000:3000 trip-payment
+```
+
+Image เป็น multi-stage: ติดตั้ง deps และ build ด้วย Bun แล้วรัน `.next/standalone` (`output: 'standalone'`)
+บน `node:22-alpine` ที่ไม่มี `node_modules` ก้อนใหญ่ติดมา — runtime stage ประมาณ 60 MB และรันด้วย user `nextjs`
+ไม่ใช่ root
+
+`MONGODB_URI` ถูกอ่านตอน request ไม่ใช่ตอน build จึงใช้ image ก้อนเดียวข้าม environment ได้
+ปรับ port/host ได้ด้วย `PORT` และ `HOSTNAME`
+
 ## 📝 License
 
 MIT
