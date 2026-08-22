@@ -11,7 +11,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -20,7 +19,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { IMember, IExpense } from '@/models/Group';
-import { Badge } from '@/components/ui/badge';
+import { Check } from 'lucide-react';
+import { MemberChip, MemberDot } from '@/components/MemberChip';
 
 interface AddExpenseDialogProps {
   open: boolean;
@@ -162,37 +162,15 @@ export function AddExpenseDialog({
               จ่ายโดย
             </Label>
             <Select value={paidBy} onValueChange={(value) => setPaidBy(value ?? '')}>
-              <SelectTrigger className="h-11">
+              <SelectTrigger className="h-11 w-full">
                 <SelectValue placeholder="เลือกคนที่จ่าย">
-                  {paidByMember && (
-                    <Badge
-                      variant="secondary"
-                      className="font-normal"
-                      style={{
-                        backgroundColor: `${paidByMember.color}15`,
-                        color: paidByMember.color,
-                        borderColor: `${paidByMember.color}30`,
-                      }}
-                    >
-                      {paidByMember.name}
-                    </Badge>
-                  )}
+                  {paidByMember && <MemberChip member={paidByMember} />}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {members.map((member) => (
                   <SelectItem key={member.id} value={member.id}>
-                    <Badge
-                      variant="secondary"
-                      className="font-normal"
-                      style={{
-                        backgroundColor: `${member.color}15`,
-                        color: member.color,
-                        borderColor: `${member.color}30`,
-                      }}
-                    >
-                      {member.name}
-                    </Badge>
+                    <MemberChip member={member} />
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -215,29 +193,31 @@ export function AddExpenseDialog({
               </Button>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              {members.map((member) => (
-                <label
-                  key={member.id}
-                  className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-border p-3 transition-colors hover:bg-accent/5"
-                >
-                  <Checkbox
-                    checked={splitWith.includes(member.id)}
-                    onCheckedChange={() => toggleMember(member.id)}
-                  />
-                  <Badge
-                    variant="secondary"
-                    className="min-w-0 max-w-full truncate font-normal"
-                    style={{
-                      backgroundColor: `${member.color}15`,
-                      color: member.color,
-                      borderColor: `${member.color}30`,
-                    }}
+            <div className="flex flex-wrap gap-2">
+              {members.map((member) => {
+                const isIncluded = splitWith.includes(member.id);
+
+                return (
+                  <button
+                    key={member.id}
+                    type="button"
+                    aria-pressed={isIncluded}
+                    onClick={() => toggleMember(member.id)}
+                    className={`flex min-h-10 items-center gap-2 rounded-full border px-3 text-sm transition-colors ${
+                      isIncluded
+                        ? 'border-primary/30 bg-primary/10 font-medium text-primary'
+                        : 'border-border bg-card text-muted-foreground hover:bg-muted'
+                    }`}
                   >
-                    {member.name}
-                  </Badge>
-                </label>
-              ))}
+                    {isIncluded ? (
+                      <Check className="size-3.5 shrink-0" />
+                    ) : (
+                      <MemberDot member={member} className="size-2" />
+                    )}
+                    <span className="truncate">{member.name}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {splitWith.length > 0 && isAmountValid && (

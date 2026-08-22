@@ -1,13 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { IExpense, IGroup, IMember } from '@/models/Group';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Plus, Users } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Plus, Receipt, Users } from 'lucide-react';
 import { ExpenseList } from '@/components/ExpenseList';
 import { AddExpenseDialog } from '@/components/AddExpenseDialog';
 import { ManageMembersDialog } from '@/components/ManageMembersDialog';
+import { PageBody, PageHeader } from '@/components/PageHeader';
+import { EmptyState, ErrorNotice, LoadingScreen } from '@/components/StateCard';
+import { MemberDot } from '@/components/MemberChip';
+import { Money } from '@/components/Money';
 import { fetchGroup as fetchGroupRequest, saveGroup, GroupUpdates } from '@/lib/api';
+import { buildMemberBalances, MONEY_EPSILON } from '@/lib/settlements';
 
 export default function HomePage() {
   const [group, setGroup] = useState<IGroup | null>(null);
@@ -36,6 +42,8 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchGroup();
   }, [fetchGroup]);
+
+  const balances = useMemo(() => (group ? buildMemberBalances(group) : []), [group]);
 
   /** Returns true when the change was saved. */
   const save = useCallback(
@@ -99,43 +107,34 @@ export default function HomePage() {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted/50 mb-4 animate-pulse">
-            <Users className="w-8 h-8 text-muted-foreground" />
-          </div>
-          <p className="text-muted-foreground">กำลังโหลด...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (!group || group.members.length === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-6">
-        <div className="text-center max-w-md">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-6">
-            <Users className="w-10 h-10 text-primary" />
+      <>
+        <div className="flex min-h-[70vh] items-center justify-center px-6">
+          <div className="max-w-sm text-center">
+            <div className="mx-auto mb-6 inline-flex size-16 items-center justify-center rounded-2xl bg-primary/10">
+              <Users className="size-7 text-primary" />
+            </div>
+            <h1 className="mb-2 font-serif text-3xl leading-tight text-foreground">
+              เริ่มต้นใช้งาน
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              เพิ่มสมาชิกในกลุ่มก่อน แล้วค่อยบันทึกค่าใช้จ่าย
+            </p>
+            {errorMessage && <p className="mt-5 text-sm text-destructive">{errorMessage}</p>}
+            <Button
+              onClick={() => setManageMembersOpen(true)}
+              size="lg"
+              className="mt-7 gap-2"
+              disabled={!group}
+            >
+              <Users className="size-4" />
+              เพิ่มสมาชิก
+            </Button>
           </div>
-          <h1 className="text-3xl font-serif text-foreground mb-3">
-            เริ่มต้นใช้งาน
-          </h1>
-          <p className="text-muted-foreground mb-8">
-            เพิ่มสมาชิกในกลุ่มเพื่อเริ่มบันทึกค่าใช้จ่าย
-          </p>
-          {errorMessage && (
-            <p className="mb-6 text-sm text-destructive">{errorMessage}</p>
-          )}
-          <Button
-            onClick={() => setManageMembersOpen(true)}
-            size="lg"
-            className="gap-2"
-            disabled={!group}
-          >
-            <Users className="w-4 h-4" />
-            เพิ่มสมาชิก
-          </Button>
         </div>
 
         <ManageMembersDialog
@@ -146,7 +145,7 @@ export default function HomePage() {
           onSuccess={handleMembersUpdated}
           errorMessage={errorMessage}
         />
-      </div>
+      </>
     );
   }
 
@@ -155,86 +154,118 @@ export default function HomePage() {
     editingExpenseIndex === null ? null : group.expenses[editingExpenseIndex] ?? null;
 
   return (
-    <div className="min-h-screen">
+    <>
       {isMockMode && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-center sm:px-6">
-          <p className="text-sm text-amber-800">
-            ⚠️ <strong>Mock Mode</strong>: กำลังใช้ข้อมูลทดสอบ (จะหายเมื่อรีสตาร์ท)
+        <div className="border-b border-warning/25 bg-warning-soft px-4 py-2 text-center">
+          <p className="text-xs text-warning">
+            <strong className="font-medium">Mock mode</strong> · ข้อมูลทดสอบ จะหายเมื่อรีสตาร์ท
           </p>
         </div>
       )}
 
-      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/95 backdrop-blur-sm">
-        <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6 sm:py-4">
-          <div className="flex items-center justify-between gap-3">
+      <PageHeader
+        title="หารตัง"
+        subtitle={`${group.members.length} คน · ${group.expenses.length} รายการ`}
+        action={
+          <>
+            <Button
+              onClick={() => setManageMembersOpen(true)}
+              variant="outline"
+              className="size-9 p-0 sm:h-9 sm:w-auto sm:px-3"
+              title="จัดการสมาชิก"
+            >
+              <Users className="size-4" />
+              <span className="hidden sm:inline">สมาชิก</span>
+            </Button>
+            <Button onClick={() => setAddExpenseOpen(true)} className="h-9 gap-1.5 px-3">
+              <Plus className="size-4" />
+              เพิ่ม
+            </Button>
+          </>
+        }
+      />
+
+      <PageBody>
+        {errorMessage && <ErrorNotice message={errorMessage} />}
+
+        <Card className="mb-4 gap-0 p-0">
+          <div className="flex items-end justify-between gap-4 px-4 py-3.5">
             <div>
-              <h1 className="text-2xl font-serif leading-none text-foreground tracking-tight sm:text-3xl">
-                หารตัง
-              </h1>
-              <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
-                {group.members.length} คน · {group.expenses.length} รายการ
-              </p>
+              <div className="text-xs text-muted-foreground">ยอดรวมทั้งกลุ่ม</div>
+              <Money value={totalExpenses} size="xl" className="mt-1 block" />
             </div>
-            <div className="rounded-md bg-card px-3 py-2 text-right ring-1 ring-border/70">
-              <div className="text-xs text-muted-foreground">ยอดรวม</div>
-              <div className="break-words text-xl font-serif leading-none text-foreground sm:text-2xl">
-                ฿{totalExpenses.toLocaleString('th-TH')}
-              </div>
+            <div className="text-right text-xs text-muted-foreground">
+              <div>เฉลี่ยคนละ</div>
+              <Money
+                value={group.members.length > 0 ? totalExpenses / group.members.length : 0}
+                size="sm"
+                tone="muted"
+                className="mt-1 block"
+              />
             </div>
           </div>
-        </div>
-      </header>
 
-      <main className="mx-auto max-w-4xl px-3 py-3 pb-20 sm:px-6 sm:py-5">
-        {errorMessage && (
-          <div
-            role="alert"
-            className="mb-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
-          >
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span className="min-w-0">{errorMessage}</span>
+          <div className="grid divide-y divide-border/60 border-t border-border/60">
+            {balances.map(({ member, net }) => {
+              const settled = Math.abs(net) <= MONEY_EPSILON;
+
+              return (
+                <div
+                  key={member.id}
+                  className="flex items-center justify-between gap-3 px-4 py-2"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <MemberDot member={member} />
+                    <span className="truncate text-sm text-foreground">{member.name}</span>
+                  </div>
+                  {settled ? (
+                    <span className="text-xs text-muted-foreground">เคลียร์แล้ว</span>
+                  ) : (
+                    <div className="flex shrink-0 items-baseline gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {net > 0 ? 'ได้รับคืน' : 'ต้องจ่าย'}
+                      </span>
+                      <Money
+                        value={net}
+                        size="sm"
+                        tone={net > 0 ? 'positive' : 'negative'}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+        </Card>
+
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <h2 className="font-serif text-lg text-foreground">รายการทั้งหมด</h2>
+          <span className="text-xs text-muted-foreground">
+            {group.expenses.length} รายการ
+          </span>
+        </div>
+
+        {group.expenses.length === 0 ? (
+          <EmptyState
+            icon={Receipt}
+            title="ยังไม่มีรายการค่าใช้จ่าย"
+            description="เพิ่มรายการแรกเพื่อเริ่มคำนวณว่าใครต้องจ่ายใครเท่าไหร่"
+            action={
+              <Button onClick={() => setAddExpenseOpen(true)} className="gap-1.5">
+                <Plus className="size-4" />
+                เพิ่มรายการ
+              </Button>
+            }
+          />
+        ) : (
+          <ExpenseList
+            expenses={group.expenses}
+            members={group.members}
+            onEdit={setEditingExpenseIndex}
+            onDelete={handleExpenseDeleted}
+          />
         )}
-
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-serif text-foreground sm:text-xl">รายการทั้งหมด</h2>
-          <Button onClick={() => setAddExpenseOpen(true)} className="h-9 gap-2 px-3">
-            <Plus className="w-4 h-4" />
-            เพิ่ม
-          </Button>
-        </div>
-
-        <ExpenseList
-          expenses={group.expenses}
-          members={group.members}
-          onEdit={setEditingExpenseIndex}
-          onDelete={handleExpenseDeleted}
-        />
-      </main>
-
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-border/70 bg-background/95 px-3 py-2 backdrop-blur sm:hidden">
-        <div className="mx-auto max-w-4xl">
-          <Button
-            onClick={() => setManageMembersOpen(true)}
-            variant="outline"
-            className="h-10 w-full gap-2"
-          >
-            <Users className="w-4 h-4" />
-            จัดการสมาชิก
-          </Button>
-        </div>
-      </nav>
-
-      <div className="fixed right-6 bottom-6 z-10 hidden gap-2 sm:flex">
-        <Button
-          onClick={() => setManageMembersOpen(true)}
-          variant="outline"
-          className="h-10 gap-2"
-        >
-          <Users className="w-4 h-4" />
-          จัดการสมาชิก
-        </Button>
-      </div>
+      </PageBody>
 
       {addExpenseOpen && (
         <AddExpenseDialog
@@ -267,6 +298,6 @@ export default function HomePage() {
         onSuccess={handleMembersUpdated}
         errorMessage={errorMessage}
       />
-    </div>
+    </>
   );
 }
