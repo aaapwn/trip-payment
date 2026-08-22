@@ -253,6 +253,58 @@ export function buildReceivableSummaries(
     .filter((summary) => summary.pairs.length > 0);
 }
 
+export interface MemberBalance {
+  member: IMember;
+  /** Total this member fronted for the group. */
+  paid: number;
+  /** Their own share of every expense they took part in. */
+  share: number;
+  /** Money already transferred out to / received from other members. */
+  transferredOut: number;
+  transferredIn: number;
+  /** What is still owed to them (positive) or by them (negative). */
+  net: number;
+}
+
+/**
+ * Per-member position, net of transfers that already happened. Shared by the
+ * home summary and the stats page so the two can never disagree.
+ */
+export function buildMemberBalances(
+  group: Pick<IGroup, 'members' | 'expenses' | 'paidSettlements' | 'paidSettlementKeys'>
+): MemberBalance[] {
+  const pairs = buildDebtPairs(group);
+
+  return group.members.map((member) => {
+    let paid = 0;
+    let share = 0;
+
+    for (const expense of group.expenses) {
+      if (expense.paidBy === member.id) paid += expense.amount;
+
+      if (expense.splitWith.length > 0 && expense.splitWith.includes(member.id)) {
+        share += expense.amount / expense.splitWith.length;
+      }
+    }
+
+    const transferredOut = pairs
+      .filter((pair) => pair.from.id === member.id)
+      .reduce((sum, pair) => sum + pair.paidAmount, 0);
+    const transferredIn = pairs
+      .filter((pair) => pair.to.id === member.id)
+      .reduce((sum, pair) => sum + pair.paidAmount, 0);
+
+    return {
+      member,
+      paid,
+      share,
+      transferredOut,
+      transferredIn,
+      net: paid - share + transferredOut - transferredIn,
+    };
+  });
+}
+
 /**
  * Drops paid records for pairs that no longer owe anything and clamps the rest
  * to the current debt, so a deleted expense cannot leave a mark behind that

@@ -10,10 +10,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { AlertCircle, Lock, Plus, X } from 'lucide-react';
 import { IExpense, IMember } from '@/models/Group';
 import { isMemberReferenced } from '@/lib/settlements';
+import { MemberDot } from '@/components/MemberChip';
 
 interface ManageMembersDialogProps {
   open: boolean;
@@ -117,42 +117,39 @@ export function ManageMembersDialog({
             </div>
 
             {members.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-2">
+              <div className="flex flex-wrap gap-2 pt-1">
                 {members.map((member) => {
                   // Removing them would orphan those expenses, so the group
                   // total would no longer match the per-person summaries.
                   const isLocked = isMemberReferenced(expenses, member.id);
 
                   return (
-                    <Badge
+                    <span
                       key={member.id}
-                      variant="secondary"
-                      className="max-w-full gap-2 px-3 py-2 text-sm"
-                      style={{
-                        backgroundColor: `${member.color}15`,
-                        color: member.color,
-                        borderColor: `${member.color}30`,
-                      }}
+                      className="inline-flex min-h-9 items-center gap-2 rounded-full border border-border bg-card pl-3 pr-1.5 text-sm"
                     >
-                      {member.name}
+                      <MemberDot member={member} />
+                      <span className="max-w-[10rem] truncate text-foreground">
+                        {member.name}
+                      </span>
                       {isLocked ? (
                         <span
-                          className="-mr-1 inline-flex min-h-6 min-w-6 items-center justify-center opacity-60"
+                          className="inline-flex size-6 items-center justify-center text-muted-foreground/70"
                           title="ลบไม่ได้เพราะยังมีรายการค่าใช้จ่ายที่อ้างถึงคนนี้"
                         >
-                          <Lock className="w-3 h-3" />
+                          <Lock className="size-3" />
                         </span>
                       ) : (
                         <button
                           type="button"
                           onClick={() => removeMember(member.id)}
-                          className="-mr-1 inline-flex min-h-6 min-w-6 items-center justify-center rounded-md transition-opacity hover:opacity-70"
+                          className="inline-flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                           aria-label={`ลบ ${member.name}`}
                         >
-                          <X className="w-3 h-3" />
+                          <X className="size-3.5" />
                         </button>
                       )}
-                    </Badge>
+                    </span>
                   );
                 })}
               </div>

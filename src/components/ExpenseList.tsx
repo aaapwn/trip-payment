@@ -2,11 +2,13 @@
 
 import { IMember, IExpense } from '@/models/Group';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, Undo2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { th } from 'date-fns/locale';
+import { MemberChip } from '@/components/MemberChip';
+import { Money } from '@/components/Money';
+import { resolveMember } from '@/lib/settlements';
 
 interface ExpenseListProps {
   expenses: IExpense[];
@@ -16,129 +18,85 @@ interface ExpenseListProps {
 }
 
 export function ExpenseList({ expenses, members, onEdit, onDelete }: ExpenseListProps) {
-  const getMemberById = (id: string) => members.find(m => m.id === id);
-
-  if (expenses.length === 0) {
-    return (
-      <Card className="p-6 text-center sm:p-12">
-        <p className="text-muted-foreground text-sm">
-          ยังไม่มีรายการค่าใช้จ่าย เริ่มเพิ่มรายการแรกกันเลย
-        </p>
-      </Card>
-    );
-  }
-
   const sortedExpenses = expenses
     .map((expense, originalIndex) => ({ expense, originalIndex }))
-    .sort(
-      (a, b) => new Date(b.expense.date).getTime() - new Date(a.expense.date).getTime()
-    );
+    .sort((a, b) => new Date(b.expense.date).getTime() - new Date(a.expense.date).getTime());
 
   return (
-    <div className="space-y-2">
+    <Card className="divide-y divide-border/60 overflow-hidden p-0">
       {sortedExpenses.map(({ expense, originalIndex }) => {
-        const paidByMember = getMemberById(expense.paidBy);
-        const splitMembers = expense.splitWith.map(getMemberById).filter(Boolean) as IMember[];
+        const paidByMember = resolveMember(members, expense.paidBy);
         const isRefund = expense.amount < 0;
-        const displayAmount = Math.abs(expense.amount);
-        const amountPerPerson = displayAmount / expense.splitWith.length;
+        const shareCount = expense.splitWith.length;
+        const amountPerPerson = shareCount > 0 ? Math.abs(expense.amount) / shareCount : 0;
 
         return (
-          <Card
+          <div
             key={originalIndex}
-            className="group rounded-lg p-3 transition-all duration-200 hover:shadow-md"
+            className="group grid grid-cols-[1fr_auto] items-baseline gap-x-3 gap-y-1.5 px-3 py-3 transition-colors hover:bg-muted/40 sm:px-4"
           >
-            <div className="grid gap-2">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="break-words text-base font-medium leading-snug text-foreground sm:text-[1.05rem]">
-                        {expense.description}
-                      </h3>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {format(new Date(expense.date), 'd MMM yyyy', { locale: th })}
-                      </p>
-                    </div>
-                    <div className="-mr-2 -mt-1 flex shrink-0 items-center gap-1 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onEdit(originalIndex)}
-                        className="min-h-9 min-w-9 sm:min-h-7 sm:min-w-7"
-                        aria-label={`แก้ไข ${expense.description}`}
-                        title="แก้ไข"
-                      >
-                        <Pencil className="w-4 h-4 text-muted-foreground" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onDelete(originalIndex)}
-                        className="min-h-9 min-w-9 sm:min-h-7 sm:min-w-7"
-                        aria-label={`ลบ ${expense.description}`}
-                        title="ลบ"
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className="break-words text-xl font-serif leading-none text-foreground sm:text-2xl">
-                    ฿{displayAmount.toLocaleString('th-TH')}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    ฿{amountPerPerson.toLocaleString('th-TH', { maximumFractionDigits: 2 })} / คน
-                  </div>
-                </div>
-              </div>
+            <div className="flex min-w-0 items-center gap-1.5">
+              {isRefund && (
+                <Undo2 className="size-3.5 shrink-0 text-positive" aria-label="เงินคืน" />
+              )}
+              <h3 className="truncate font-medium leading-snug text-foreground">
+                {expense.description}
+              </h3>
+            </div>
 
-              <div className="grid gap-1.5 text-sm sm:flex sm:items-center sm:gap-4">
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {isRefund ? 'คืนโดย' : 'จ่ายโดย'}
-                  </span>
-                  {paidByMember && (
-                    <Badge
-                      variant="secondary"
-                      className="h-5 min-w-0 max-w-full truncate px-2 text-xs font-normal"
-                      style={{
-                        backgroundColor: `${paidByMember.color}15`,
-                        color: paidByMember.color,
-                        borderColor: `${paidByMember.color}30`,
-                      }}
-                    >
-                      {paidByMember.name}
-                    </Badge>
-                  )}
-                </div>
-
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {isRefund ? 'คืนให้' : 'แชร์กับ'}
-                  </span>
-                  <div className="flex min-w-0 flex-wrap gap-1">
-                    {splitMembers.map((member) => (
-                      <Badge
-                        key={member.id}
-                        variant="outline"
-                        className="h-5 max-w-full truncate px-2 font-normal text-xs"
-                        style={{
-                          borderColor: `${member.color}30`,
-                          color: member.color,
-                        }}
-                      >
-                        {member.name}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Money
+                value={Math.abs(expense.amount)}
+                size="md"
+                tone={isRefund ? 'positive' : 'default'}
+              />
+              <div className="-mr-1.5 flex items-center transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onEdit(originalIndex)}
+                  className="size-8 p-0 text-muted-foreground hover:text-foreground"
+                  aria-label={`แก้ไข ${expense.description}`}
+                  title="แก้ไข"
+                >
+                  <Pencil className="size-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDelete(originalIndex)}
+                  className="size-8 p-0 text-muted-foreground hover:text-destructive"
+                  aria-label={`ลบ ${expense.description}`}
+                  title="ลบ"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
               </div>
             </div>
-          </Card>
+
+            {/* Meta spans the full width so it never wraps around the amount. */}
+            <div className="col-span-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                <span className="tabular">
+                  {format(new Date(expense.date), 'd MMM yy', { locale: th })}
+                </span>
+                <span aria-hidden>·</span>
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  {isRefund ? 'คืนโดย' : 'จ่ายโดย'}
+                  <MemberChip member={paidByMember} />
+                </span>
+              </div>
+              <span className="shrink-0 tabular">
+                ฿{amountPerPerson.toLocaleString('th-TH', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                × {shareCount}
+              </span>
+            </div>
+          </div>
         );
       })}
-    </div>
+    </Card>
   );
 }

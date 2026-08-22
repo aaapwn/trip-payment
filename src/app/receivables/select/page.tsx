@@ -1,13 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, ArrowRight, Users } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { ChevronRight, Users } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { IGroup } from '@/models/Group';
+import { MemberChip } from '@/components/MemberChip';
+import { Money } from '@/components/Money';
+import { PageBody, PageHeader } from '@/components/PageHeader';
+import { EmptyState, LoadingScreen } from '@/components/StateCard';
+import { fetchGroup as fetchGroupRequest } from '@/lib/api';
+import { buildReceivableSummaries, MONEY_EPSILON } from '@/lib/settlements';
 
 export default function ReceivablesSelectPage() {
   const searchParams = useSearchParams();
@@ -16,12 +20,7 @@ export default function ReceivablesSelectPage() {
 
   const fetchGroup = useCallback(async () => {
     try {
-      const response = await fetch('/api/group');
-      const data = await response.json();
-
-      if (response.ok) {
-        setGroup(data);
-      }
+      setGroup(await fetchGroupRequest());
     } catch (error) {
       console.error('Failed to fetch group:', error);
     } finally {
@@ -34,86 +33,60 @@ export default function ReceivablesSelectPage() {
     fetchGroup();
   }, [fetchGroup]);
 
+  const summaries = useMemo(() => (group ? buildReceivableSummaries(group) : []), [group]);
   const selectedMemberId = searchParams.get('memberId');
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted/50 mb-4 animate-pulse">
-            <Users className="w-8 h-8 text-muted-foreground" />
-          </div>
-          <p className="text-muted-foreground">กำลังโหลด...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!group || group.members.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-6">
-        <Card className="max-w-md p-6 text-center sm:p-8">
-          <p className="text-sm text-muted-foreground">ยังไม่มีสมาชิกให้เลือก</p>
-        </Card>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-10 border-b border-border/50 bg-background/95 backdrop-blur-sm">
-        <div className="mx-auto max-w-4xl px-4 py-3 sm:px-6 sm:py-4">
-          <Link href="/receivables">
-            <Button variant="ghost" size="sm" className="-ml-2 mb-2 min-h-9 gap-2">
-              <ArrowLeft className="w-4 h-4" />
-              เงินที่ต้องได้รับ
-            </Button>
-          </Link>
+    <>
+      <PageHeader
+        title="เลือกคน"
+        subtitle="กดชื่อเพื่อดูว่าใครยังไม่โอนคืนคนนั้น"
+        backHref="/receivables"
+        backLabel="เงินที่ต้องได้รับ"
+      />
 
-          <h1 className="text-2xl font-serif leading-none tracking-tight text-foreground sm:text-3xl">
-            เลือกคน
-          </h1>
-          <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
-            กดชื่อเพื่อไปหน้าสรุปเงินที่ต้องได้รับของคนนั้น
-          </p>
-        </div>
-      </header>
+      <PageBody>
+        {summaries.length === 0 ? (
+          <EmptyState icon={Users} title="ยังไม่มีรายการที่ต้องได้รับเงินคืน" />
+        ) : (
+          <Card className="divide-y divide-border/60 overflow-hidden p-0">
+            {summaries.map((summary) => {
+              const isActive = summary.member.id === selectedMemberId;
+              const settled = summary.outstandingTotal <= MONEY_EPSILON;
 
-      <main className="mx-auto max-w-4xl px-3 py-3 pb-20 sm:px-6 sm:py-5">
-        <div className="grid gap-2">
-          {group.members.map((member) => {
-            const isActive = member.id === selectedMemberId;
-            return (
-              <Link
-                key={member.id}
-                href={`/receivables?memberId=${member.id}`}
-                className="block"
-              >
-                <Card
-                  className={`rounded-lg p-3 transition-colors ${
-                    isActive ? 'bg-accent/5 ring-1 ring-accent/20' : 'hover:bg-muted/40'
+              return (
+                <Link
+                  key={summary.member.id}
+                  href={`/receivables?memberId=${summary.member.id}`}
+                  aria-current={isActive ? 'true' : undefined}
+                  className={`flex min-h-14 items-center justify-between gap-3 px-4 transition-colors ${
+                    isActive ? 'bg-primary/5' : 'hover:bg-muted/40'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <Badge
-                      variant="secondary"
-                      className="max-w-full truncate px-3 py-1.5 text-sm font-medium"
-                      style={{
-                        backgroundColor: `${member.color}15`,
-                        color: member.color,
-                        borderColor: `${member.color}30`,
-                      }}
-                    >
-                      {member.name}
-                    </Badge>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <MemberChip member={summary.member} size="md" />
+                    <span className="shrink-0 text-xs text-muted-foreground tabular">
+                      {summary.pairs.length} คน
+                    </span>
                   </div>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
-      </main>
-    </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {settled ? (
+                      <span className="text-xs text-positive">เคลียร์แล้ว</span>
+                    ) : (
+                      <Money value={summary.outstandingTotal} size="sm" />
+                    )}
+                    <ChevronRight className="size-4 text-muted-foreground" />
+                  </div>
+                </Link>
+              );
+            })}
+          </Card>
+        )}
+      </PageBody>
+    </>
   );
 }
